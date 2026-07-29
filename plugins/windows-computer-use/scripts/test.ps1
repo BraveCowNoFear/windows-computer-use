@@ -1,5 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $pluginRoot = Split-Path -Parent $PSScriptRoot
+& (Join-Path $PSScriptRoot 'validate-plugin.ps1')
 & (Join-Path $PSScriptRoot 'build.ps1') -Configuration Release
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $dotnet = 'C:\Users\Clr\.codex\tools\dotnet-sdk-8\dotnet.exe'

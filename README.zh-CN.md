@@ -53,7 +53,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` 会还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/增量差异、WGC、快照失效与新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
+`test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/增量差异、WGC、快照失效与新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
 
 构建后还可运行 `scripts/real-app-smoke.ps1` 做非破坏性真实应用兼容测试：它会打开隔离的记事本、资源管理器和设置窗口，完成 UIA/截图/OCR，并且只关闭测试前不存在的窗口 ID。
 

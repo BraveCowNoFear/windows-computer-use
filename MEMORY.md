@@ -61,6 +61,7 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Added `pointer_position` and `move_pointer`, making 24 MCP tools. Pointer movement can be immediate or smoothly interpolated for hover interactions and deliberately does not click or activate a window.
 - Screen coordinates work without a window selector. Window coordinates use the exact HWND bounds; screenshot coordinates can resolve their source window directly from a fresh screenshot id and still run stale/moved/resized validation.
 - E2E verifies the final physical pointer position in all three coordinate spaces, including smooth movement to an OCR-grounded word center.
+- `validate-plugin.ps1` gates manifest resources, marketplace resolution, MCP launcher wiring, skill identity, and PowerShell syntax locally and in GitHub Actions; `test.ps1` runs it before compilation.
 
 ## Current boundaries and next work
 

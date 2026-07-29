@@ -4,6 +4,8 @@
 
 Re-run `inspect_window`, then search by `automation_id`, exact `name`, and `control_type`. A cached `control_id` automatically attempts re-location from those properties. If duplicates remain, narrow the query or inspect a transient child window.
 
+If the broker says a `window_id` itself is stale, Windows has destroyed that HWND and no unique same-process/class/title replacement was found. Re-run `list_windows` or `wait_for_window` and select the replacement. Temporary hiding, an empty title, and minimize/restore do not by themselves invalidate an exact HWND selector.
+
 ## Custom canvas or empty UIA tree
 
 Use `find_text` when the target has readable text; otherwise snapshot the selected window for model-side vision. Use image-relative coordinates with `coordinate_space=screenshot` and pass the same `screenshot_id`. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.

@@ -40,7 +40,7 @@ internal sealed class TestForm : Form
         Name = "TestWindow";
         AccessibleName = "Windows Computer Use Test App";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 285);
+        ClientSize = new Size(520, 375);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
 
@@ -85,6 +85,31 @@ internal sealed class TestForm : Form
             Location = new Point(30, 174),
             Size = new Size(150, 38)
         };
+        var featureToggle = new CheckBox
+        {
+            Name = "FeatureToggle",
+            AccessibleName = "Enable feature",
+            Text = "Enable feature",
+            AutoSize = true,
+            Location = new Point(30, 232)
+        };
+        var modeList = new ListBox
+        {
+            Name = "ModeList",
+            AccessibleName = "Mode list",
+            Location = new Point(250, 166),
+            Size = new Size(230, 105)
+        };
+        modeList.Items.AddRange(["Alpha", "Beta", "Gamma"]);
+        modeList.SelectedIndex = 0;
+        var recreateWindow = new Button
+        {
+            Name = "RecreateWindowButton",
+            AccessibleName = "Recreate window handle",
+            Text = "RECREATE HWND",
+            Location = new Point(30, 286),
+            Size = new Size(150, 36)
+        };
         commit.Click += (_, _) =>
         {
             status.Text = $"Saved: {input.Text}";
@@ -122,7 +147,8 @@ internal sealed class TestForm : Form
             dialog.Controls.Add(close);
             dialog.Show(this);
         }));
-        Controls.AddRange([heading, input, commit, status, openDialog]);
+        recreateWindow.Click += (_, _) => RecreateHandle();
+        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow]);
         AcceptButton = commit;
     }
 }

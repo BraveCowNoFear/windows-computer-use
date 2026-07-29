@@ -50,6 +50,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "observe_changes" => ObserveChanges(args),
                 "find_controls" => Find(args),
                 "invoke" => Invoke(args),
+                "perform_secondary_action" => PerformSecondaryAction(args),
                 "enter_text" => EnterText(args),
                 "wait_for_ui" => Wait(args),
                 "capture" => Capture(args),
@@ -80,7 +81,7 @@ public sealed class BrokerDispatcher : IDisposable
     public void Dispose() => _uia.Dispose();
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or
         "move_pointer" or "click" or "press_key" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
 
     private object Launch(JsonElement args)
@@ -178,7 +179,16 @@ public sealed class BrokerDispatcher : IDisposable
             if (!beforeById.ContainsKey(control.Id))
                 changes.Add(new ControlChange("added", control.Id, null, control));
         }
-        return new WindowDiff(window, previousId, current.ObservationId, current.CapturedAt, changes, current.FocusedControlId);
+        return new WindowDiff(
+            window,
+            previousId,
+            current.ObservationId,
+            current.CapturedAt,
+            changes,
+            current.FocusedControlId,
+            current.DocumentText,
+            current.SelectedText,
+            current.SelectedControlIds);
     }
 
     private object Find(JsonElement args)
@@ -200,6 +210,14 @@ public sealed class BrokerDispatcher : IDisposable
         var text = args.String("text") ?? throw new ArgumentException("text is required");
         var window = _windows.Activate(_windows.Resolve(args));
         try { return _uia.EnterText(window, args.String("control_id"), args, text, args.Bool("append")); }
+        finally { _screenshots.Clear(); }
+    }
+
+    private ActionResult PerformSecondaryAction(JsonElement args)
+    {
+        var action = args.String("action") ?? throw new ArgumentException("action is required");
+        var window = _windows.Activate(_windows.Resolve(args));
+        try { return _uia.PerformSecondaryAction(window, args.String("control_id"), args, action); }
         finally { _screenshots.Clear(); }
     }
 
@@ -459,6 +477,7 @@ public sealed class BrokerDispatcher : IDisposable
     private object EndSession()
     {
         _uia.ClearSession();
+        _windows.ClearSession();
         _screenshots.Clear();
         _observations.Clear();
         return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow };
@@ -591,6 +610,13 @@ public sealed class BrokerDispatcher : IDisposable
         before.IsEnabled == after.IsEnabled &&
         before.IsOffscreen == after.IsOffscreen &&
         before.HasKeyboardFocus == after.HasKeyboardFocus &&
+        before.Value == after.Value &&
+        before.IsReadOnly == after.IsReadOnly &&
+        before.IsSelected == after.IsSelected &&
+        before.ToggleState == after.ToggleState &&
+        before.ExpandCollapseState == after.ExpandCollapseState &&
+        before.HorizontalScrollPercent == after.HorizontalScrollPercent &&
+        before.VerticalScrollPercent == after.VerticalScrollPercent &&
         before.Patterns.SequenceEqual(after.Patterns, StringComparer.Ordinal);
 
     private sealed record ScreenshotRecord(long WindowId, RectDto Bounds, RectDto CaptureBounds, DateTimeOffset CapturedAt, string Sha256);

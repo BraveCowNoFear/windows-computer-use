@@ -19,6 +19,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `observe_changes` | Compare against a cached observation id and return only added, removed, or changed controls. |
 | `find_controls` | Filter controls by semantic properties. |
 | `invoke` | Invoke, select, toggle, expand, or center-click one semantic control. |
+| `perform_secondary_action` | Explicitly focus/raise, select, add/remove selection, toggle, expand/collapse, or UIA-scroll one semantic control. |
 | `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput. |
 | `wait_for_ui` | Wait for `exists`, `absent`, `visible`, `hidden`, `enabled`, or `focused`. |
 | `capture` | Return PNG image content for a window or virtual desktop and optionally save it. |
@@ -35,10 +36,12 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `activate_window` | Restore and foreground one exact window. |
 | `end_session` | Clear element caches and end the logical control session. |
 
-Controls include `parentId`, `depth`, and `childCount`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session.
+Controls include `parentId`, `depth`, `childCount`, `value`, `isReadOnly`, `isSelected`, `toggleState`, `expandCollapseState`, and horizontal/vertical scroll percentages when their UIA patterns are supported. Window observations also return `focusedControlId`, `documentText`, `selectedText`, and `selectedControlIds`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session; `observe_changes` compares these semantic states as well as identity, layout, focus, and patterns.
 
 Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Screenshot coordinates are mapped from the capture's DWM-visible screen origin. A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.
 
 Visual tools reject minimized windows because WGC/PrintWindow output is not dependable in that state. Call `set_window_state` with `restore`, wait for the verified result, and observe again. Use `ownerWindowId`/`rootOwnerWindowId` from `list_windows` or `wait_for_window` to keep transient dialogs associated with the intended main window.
+
+An exact `window_id` is resolved directly as an HWND even when that window is temporarily hidden or untitled. If an app destroys and recreates the HWND, the cached id follows it only when the same process id, native class, and non-empty title identify one unique replacement. Otherwise the broker returns an explicit stale-id error; call `list_windows`/`wait_for_window` and select the replacement rather than guessing.

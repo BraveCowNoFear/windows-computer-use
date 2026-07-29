@@ -43,6 +43,7 @@ public sealed record WindowDescriptor(
     string WindowClass,
     long? OwnerWindowId,
     long RootOwnerWindowId,
+    bool IsVisible,
     bool IsForeground,
     bool IsMinimized,
     bool IsMaximized);
@@ -76,6 +77,13 @@ public sealed record ControlDescriptor(
     bool IsEnabled,
     bool IsOffscreen,
     bool HasKeyboardFocus,
+    string? Value,
+    bool? IsReadOnly,
+    bool? IsSelected,
+    string? ToggleState,
+    string? ExpandCollapseState,
+    double? HorizontalScrollPercent,
+    double? VerticalScrollPercent,
     IReadOnlyList<string> Patterns,
     string StableSelector);
 
@@ -86,6 +94,9 @@ public sealed record WindowInspection(
     string Tree,
     IReadOnlyList<ControlDescriptor> Controls,
     string? FocusedControlId,
+    string? DocumentText,
+    string? SelectedText,
+    IReadOnlyList<string> SelectedControlIds,
     string Backend = "uia3");
 
 public sealed record ActionVerification(
@@ -130,7 +141,10 @@ public sealed record WindowDiff(
     string ObservationId,
     DateTimeOffset CapturedAt,
     IReadOnlyList<ControlChange> Changes,
-    string? FocusedControlId);
+    string? FocusedControlId,
+    string? DocumentText,
+    string? SelectedText,
+    IReadOnlyList<string> SelectedControlIds);
 
 public sealed record ToolDefinition(
     string Name,

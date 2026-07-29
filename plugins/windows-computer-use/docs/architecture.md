@@ -16,7 +16,7 @@ MCP stdout contains only newline-delimited JSON-RPC. Broker diagnostics and MCP 
 
 ## Observation and identity
 
-`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, and a stable selector. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash. Window descriptors expose GetWindowRect and DWM visible-frame bounds, native class, immediate owner, owner-chain root, and minimized/maximized state. `wait_for_window` polls those native relationships for transient dialogs without fixed sleeps.
+`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, a stable selector, and supported Value/read-only/selection/toggle/expand/scroll state. Observations also summarize the focused element, selected controls, focused document text, and selected text. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls, including pure state transitions. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash. Window descriptors expose GetWindowRect and DWM visible-frame bounds, native class, immediate owner, owner-chain root, visibility, and minimized/maximized state. Exact HWND selectors are described directly rather than being rediscovered through the visible-window list, so temporarily hidden or untitled targets remain addressable. If an application destroys and recreates its top-level HWND, a cached id may follow the replacement only when process id, native class, and non-empty title identify exactly one candidate; ambiguous or unrelated replacements fail closed. `wait_for_window` polls native relationships for transient dialogs without fixed sleeps.
 
 The broker caches the live `AutomationElement`. If it becomes stale, the broker scans the current tree and re-locates by semantic properties. A major navigation should still be followed by a fresh inspection because the application may intentionally replace the entire view.
 
@@ -28,7 +28,7 @@ State-changing actions run as:
 2. Acquire the shared `codex-ui-control.lock.json` lock.
 3. Restore and activate the target window.
 4. Resolve the semantic control or physical point. Coordinate actions may bind to a screenshot id; semantic/input mutations invalidate older screenshots, and moved, resized, unknown, or expired observations are rejected.
-5. Use UIA3 Pattern first, then SendInput fallback.
+5. Use the requested UIA3 Pattern first. Primary `invoke` may fall back to a center click; `perform_secondary_action` stays semantic and fails explicitly when its required pattern is unavailable.
 6. Wait a short settling interval or the explicit `wait_for_ui` condition.
 7. Re-observe the control or window and return verification metadata. Pixel actions capture a post-action frame and return its id/hash for visual-difference inspection.
 8. Release the shared lock.
@@ -43,7 +43,7 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 - Input: User32 `SendInput` plus verified `GetCursorPos`/`SetCursorPos`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard. Pointer moves support immediate or smooth screen/window/screenshot-space hover without activating a window.
 - OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs. Lines/words carry image bounds; `find_text` returns screenshot and screen bounds plus image-relative centers.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
-- Window lifecycle: verified Win32 minimize/maximize/restore plus owner-chain discovery. Visual tools reject minimized targets with explicit restore guidance instead of returning misleading frames.
+- Window lifecycle: direct HWND rehydration, verified Win32 minimize/maximize/restore, and owner-chain discovery. Visual tools reject minimized targets with explicit restore guidance instead of returning misleading frames.
 
 ## Known gaps
 

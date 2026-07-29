@@ -34,7 +34,7 @@ function Invoke-McpRequest {
 function Invoke-WcuTool {
     param([string]$Name, [hashtable]$Arguments = @{})
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
-    if ($result.isError) { throw "Tool $Name failed: $($result.content[0].text)" }
+    if ($result.isError) { throw "Stage $script:stage; tool $Name failed: $($result.content[0].text)" }
     if ($Name -in @('capture', 'snapshot')) { return $result }
     return ($result.content[0].text | ConvertFrom-Json)
 }
@@ -66,7 +66,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 24) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 25) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -81,6 +81,7 @@ try {
     $inspection = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 100 }
     if (@($inspection.controls).Count -lt 4) { throw 'UIA inspection returned too few controls.' }
 
+    $script:stage = 'initial-input'
     $input = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'InputBox'; limit = 2 }
     if ($input.count -ne 1) {
         $input = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; name = 'Input'; control_type = 'Edit'; limit = 2 }
@@ -90,7 +91,46 @@ try {
     $testText = 'Codex ' + [char]0x4F60 + [char]0x597D
     $entered = Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText }
     if (-not $entered.ok -or -not $entered.verification.verified) { throw 'Text entry did not verify.' }
+    $inputState = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'InputBox'; limit = 2 }
+    if ($inputState.count -ne 1 -or $inputState.controls[0].value -ne $testText -or $inputState.controls[0].isReadOnly) {
+        throw 'UIA ValuePattern state was not exposed after text entry.'
+    }
+    Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
+    $testApp.Refresh()
+    $afterFocusWindows = Invoke-WcuTool -Name 'list_windows'
+    if ($testApp.HasExited -or @($afterFocusWindows.windows | Where-Object { $_.id -eq $windowId }).Count -ne 1) {
+        $exitDetails = if ($testApp.HasExited) { "exit_code=$($testApp.ExitCode)" } else { "new_handle=$($testApp.MainWindowHandle)" }
+        throw "Target window changed after UIA focus ($exitDetails): $($afterFocusWindows | ConvertTo-Json -Depth 4 -Compress)"
+    }
+    Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+a' } | Out-Null
+    $textSelectionState = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 150 }
+    if ($textSelectionState.selectedText -ne $testText -or -not $textSelectionState.documentText) {
+        throw "Focused TextPattern state was not exposed: $($textSelectionState | ConvertTo-Json -Depth 4 -Compress)"
+    }
 
+    $script:stage = 'toggle-state'
+    $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
+    if ($toggle.count -ne 1 -or $toggle.controls[0].toggleState -ne 'Off') { throw "Initial UIA TogglePattern state was not exposed: $($toggle | ConvertTo-Json -Depth 6 -Compress)" }
+    $toggleObservation = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 150 }
+    $toggleAction = Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; action = 'toggle' }
+    if (-not $toggleAction.ok -or -not $toggleAction.verification.verified) { throw 'Explicit UIA toggle action did not verify.' }
+    $toggleAfter = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
+    if ($toggleAfter.controls[0].toggleState -ne 'On') { throw 'UIA toggle state did not change to On.' }
+    $toggleDiff = Invoke-WcuTool -Name 'observe_changes' -Arguments @{ window_id = $windowId; previous_observation_id = $toggleObservation.observationId; limit = 150 }
+    $toggleChanges = @($toggleDiff.changes | Where-Object { $_.id -eq $toggle.controls[0].id -and $_.before.toggleState -eq 'Off' -and $_.after.toggleState -eq 'On' })
+    if ($toggleChanges.Count -ne 1) { throw 'Incremental observation did not include the TogglePattern state transition.' }
+
+    $script:stage = 'selection-state'
+    $beta = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; name = 'Beta'; control_type = 'ListItem'; limit = 2 }
+    if ($beta.count -ne 1 -or $beta.controls[0].isSelected) { throw 'Initial UIA SelectionItem state was not exposed.' }
+    Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $beta.controls[0].id; action = 'select' } | Out-Null
+    $selectionInspection = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 150 }
+    $selectedBeta = @($selectionInspection.controls | Where-Object { $_.id -eq $beta.controls[0].id -and $_.isSelected })
+    if ($selectedBeta.Count -ne 1 -or @($selectionInspection.selectedControlIds) -notcontains $beta.controls[0].id) {
+        throw "Explicit UIA selection action or selected-control summary did not verify: beta=$($beta | ConvertTo-Json -Depth 6 -Compress) inspection=$($selectionInspection | ConvertTo-Json -Depth 6 -Compress)"
+    }
+
+    $script:stage = 'semantic-invoke'
     $button = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
     if ($button.count -ne 1) {
         $button = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; name = 'Commit'; control_type = 'Button'; limit = 2 }
@@ -98,6 +138,11 @@ try {
     if ($button.count -ne 1) { throw 'Could not uniquely resolve the semantic button.' }
     $invoked = Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $button.controls[0].id }
     if (-not $invoked.ok) { throw 'Semantic invoke failed.' }
+    $postInvokeWindows = Invoke-WcuTool -Name 'list_windows'
+    if (@($postInvokeWindows.windows | Where-Object { $_.id -eq $windowId }).Count -ne 1) {
+        $testApp.Refresh()
+        throw "Target window disappeared after semantic invoke; process_exited=$($testApp.HasExited): $($postInvokeWindows | ConvertTo-Json -Depth 5 -Compress)"
+    }
 
     $expected = 'Saved: ' + $testText
     $waited = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $expected; state = 'exists'; timeout_ms = 5000 }
@@ -130,6 +175,7 @@ try {
     }
     if (-not $semanticInvalidatedScreenshot) { throw 'A semantic mutation did not invalidate the prior screenshot.' }
 
+    $script:stage = 'pixel-grounding'
     $pixelText = 'Pixel mapped'
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $pixelText } | Out-Null
     $pixelSnapshot = Invoke-WcuTool -Name 'snapshot' -Arguments @{ window_id = $windowId; limit = 100 }
@@ -222,6 +268,16 @@ try {
     if (-not $minimizedCaptureRejected) { throw 'Minimized capture was not rejected with explicit recovery guidance.' }
     $restored = Invoke-WcuTool -Name 'set_window_state' -Arguments @{ window_id = $windowId; state = 'restore' }
     if (-not $restored.ok -or $restored.window.isMinimized -or $restored.window.isMaximized) { throw 'Window did not return to the restored state.' }
+
+    $script:stage = 'window-rehydration'
+    $recreateButton = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'RecreateWindowButton'; limit = 2 }
+    if ($recreateButton.count -ne 1) { throw 'Could not resolve the deterministic HWND recreation control.' }
+    Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $recreateButton.controls[0].id } | Out-Null
+    $rehydratedInspection = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 150 }
+    if ($rehydratedInspection.window.processId -ne $target[0].processId -or @($rehydratedInspection.controls).Count -lt 5) {
+        throw 'The original window id did not recover the recreated same-process HWND.'
+    }
+    $windowHandleChanged = [long]$rehydratedInspection.window.id -ne $windowId
     $ended = Invoke-WcuTool -Name 'end_session'
     if (-not $ended.ok) { throw 'Session did not end cleanly.' }
 
@@ -258,6 +314,12 @@ try {
         minimized_capture_rejected = $minimizedCaptureRejected
         window_state_restored = -not $restored.window.isMinimized
         pointer_coordinate_spaces_verified = 3
+        value_state_exposed = $inputState.controls[0].value -eq $testText
+        selected_text_exposed = $textSelectionState.selectedText -eq $testText
+        toggle_state_diff = $toggleChanges.Count
+        selection_state_exposed = $selectedBeta.Count
+        recreated_window_recovered = $true
+        window_handle_changed = $windowHandleChanged
     } | ConvertTo-Json -Depth 6
 } finally {
     if ($null -ne $mcp) {

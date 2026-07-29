@@ -22,6 +22,8 @@ public static class ToolCatalog
             QueryProps(("limit", S("integer", "Maximum returned controls, default 50.")))),
         Tool("invoke", "Invoke a semantic control. Stale ids are automatically re-resolved; unsupported patterns fall back to a center click.",
             QueryProps(("control_id", S("string", "Stable id from inspect_window or find_controls.")))),
+        Tool("perform_secondary_action", "Perform an explicit UIA secondary action such as focus, select, toggle, expand/collapse, or semantic scroll on one control.",
+            QueryProps(("control_id", S("string", "Stable control id.")), ("action", Enum("focus", "raise", "select", "add_to_selection", "remove_from_selection", "toggle", "expand", "collapse", "scroll_up", "scroll_down", "scroll_left", "scroll_right"))), ["action"]),
         Tool("enter_text", "Set or type Unicode text into a semantic control, preferring UIA ValuePattern and falling back to SendInput.",
             QueryProps(("control_id", S("string", "Stable control id.")), ("text", S("string", "Text to enter.")), ("append", S("boolean", "Append instead of replacing."))), ["text"]),
         Tool("wait_for_ui", "Poll UIA until a control exists, disappears, becomes visible, enabled, or focused.",

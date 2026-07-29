@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Definitions;
 using FlaUI.UIA3;
 using WindowsComputerUse.Contracts;
 
@@ -29,6 +30,8 @@ public sealed class UiaService : IDisposable
         var pending = new Queue<PendingElement>();
         pending.Enqueue(new PendingElement(root, null, 0, [rootSegment]));
         string? focused = null;
+        string? documentText = null;
+        string? selectedText = null;
         while (pending.Count > 0 && controls.Count < limit)
         {
             var current = pending.Dequeue();
@@ -43,7 +46,17 @@ public sealed class UiaService : IDisposable
                 children.Length,
                 current.Path);
             controls.Add(descriptor);
-            if (descriptor.HasKeyboardFocus) focused = descriptor.Id;
+            if (descriptor.HasKeyboardFocus)
+            {
+                focused = descriptor.Id;
+                var text = ReadText(current.Element);
+                documentText = text.DocumentText ?? descriptor.Value;
+                selectedText = text.SelectedText;
+            }
+            else if (documentText is null && descriptor.ControlType == "Document")
+            {
+                documentText = ReadText(current.Element).DocumentText;
+            }
 
             var duplicateKeys = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var child in children)
@@ -59,14 +72,18 @@ public sealed class UiaService : IDisposable
         var tree = string.Join(Environment.NewLine, controls.Select(control =>
             $"{new string(' ', control.Depth * 2)}[{control.Index}] {control.ControlType} name=\"{Escape(control.Name)}\" automationId=\"{Escape(control.AutomationId)}\" " +
             $"id={control.Id} bounds=({control.Bounds.X},{control.Bounds.Y},{control.Bounds.Width},{control.Bounds.Height}) " +
-            $"enabled={control.IsEnabled.ToString().ToLowerInvariant()} children={control.ChildCount} patterns=[{string.Join(',', control.Patterns)}]"));
+            $"enabled={control.IsEnabled.ToString().ToLowerInvariant()} children={control.ChildCount}{StateText(control)} patterns=[{string.Join(',', control.Patterns)}]"));
+        var selectedControlIds = controls.Where(control => control.IsSelected == true).Select(control => control.Id).ToArray();
         return new WindowInspection(
             window,
             $"obs-{Guid.NewGuid():N}",
             DateTimeOffset.UtcNow,
             tree,
             controls,
-            focused);
+            focused,
+            documentText,
+            selectedText,
+            selectedControlIds);
     }
 
     public IReadOnlyList<ControlDescriptor> Find(WindowDescriptor window, JsonElement query, int limit = 50)
@@ -125,6 +142,60 @@ public sealed class UiaService : IDisposable
         }
         Thread.Sleep(100);
         return Verify("enter_text", backend, window, controlId, query, before);
+    }
+
+    public ActionResult PerformSecondaryAction(WindowDescriptor window, string? controlId, JsonElement query, string action)
+    {
+        var element = Resolve(window, controlId, query);
+        var before = Summary(element);
+        var normalized = action.Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+        var backend = $"uia3-{normalized}";
+        switch (normalized)
+        {
+            case "focus" or "raise":
+                element.Focus();
+                break;
+            case "select":
+                Require(element.Patterns.SelectionItem.TryGetPattern(out var select), action);
+                select!.Select();
+                break;
+            case "add_to_selection":
+                Require(element.Patterns.SelectionItem.TryGetPattern(out var add), action);
+                add!.AddToSelection();
+                break;
+            case "remove_from_selection":
+                Require(element.Patterns.SelectionItem.TryGetPattern(out var remove), action);
+                remove!.RemoveFromSelection();
+                break;
+            case "toggle":
+                Require(element.Patterns.Toggle.TryGetPattern(out var toggle), action);
+                toggle!.Toggle();
+                break;
+            case "expand":
+                Require(element.Patterns.ExpandCollapse.TryGetPattern(out var expand), action);
+                expand!.Expand();
+                break;
+            case "collapse":
+                Require(element.Patterns.ExpandCollapse.TryGetPattern(out var collapse), action);
+                collapse!.Collapse();
+                break;
+            case "scroll_up":
+                Scroll(element, ScrollAmount.NoAmount, ScrollAmount.LargeDecrement, action);
+                break;
+            case "scroll_down":
+                Scroll(element, ScrollAmount.NoAmount, ScrollAmount.LargeIncrement, action);
+                break;
+            case "scroll_left":
+                Scroll(element, ScrollAmount.LargeDecrement, ScrollAmount.NoAmount, action);
+                break;
+            case "scroll_right":
+                Scroll(element, ScrollAmount.LargeIncrement, ScrollAmount.NoAmount, action);
+                break;
+            default:
+                throw new ArgumentException("action must be focus, raise, select, add_to_selection, remove_from_selection, toggle, expand, collapse, scroll_up, scroll_down, scroll_left, or scroll_right");
+        }
+        Thread.Sleep(200);
+        return Verify("perform_secondary_action", backend, window, controlId, query, before);
     }
 
     public object WaitFor(WindowDescriptor window, JsonElement query, string state, int timeoutMs, int pollMs)
@@ -240,11 +311,19 @@ public sealed class UiaService : IDisposable
         var selector = SelectorFor(windowId, path);
         var id = IdFor(windowId, path);
         var patterns = GetPatterns(element);
+        var state = ReadPatternState(element);
         var descriptor = new ControlDescriptor(
             id, index, parentId, depth, childCount, name, automationId, controlType, className, bounds,
             Safe(() => element.IsEnabled, false),
             Safe(() => element.IsOffscreen, true),
             Safe(() => element.Properties.HasKeyboardFocus.ValueOrDefault, false),
+            state.Value,
+            state.IsReadOnly,
+            state.IsSelected,
+            state.ToggleState,
+            state.ExpandCollapseState,
+            state.HorizontalScrollPercent,
+            state.VerticalScrollPercent,
             patterns,
             selector);
         _elements[id] = new ElementLocator(windowId, path, element);
@@ -269,9 +348,106 @@ public sealed class UiaService : IDisposable
         try { if (supported()) target.Add(name); } catch { }
     }
 
+    private static PatternState ReadPatternState(AutomationElement element)
+    {
+        string? value = null;
+        bool? isReadOnly = null;
+        bool? isSelected = null;
+        string? toggleState = null;
+        string? expandCollapseState = null;
+        double? horizontalScrollPercent = null;
+        double? verticalScrollPercent = null;
+        try
+        {
+            if (element.Patterns.Value.TryGetPattern(out var valuePattern))
+            {
+                value = Truncate(valuePattern.Value.ValueOrDefault, 4096);
+                isReadOnly = valuePattern.IsReadOnly.ValueOrDefault;
+            }
+        }
+        catch { }
+        try
+        {
+            if (element.Patterns.SelectionItem.TryGetPattern(out var selection))
+                isSelected = selection.IsSelected.ValueOrDefault;
+        }
+        catch { }
+        try
+        {
+            if (element.Patterns.Toggle.TryGetPattern(out var toggle))
+                toggleState = toggle.ToggleState.ValueOrDefault.ToString();
+        }
+        catch { }
+        try
+        {
+            if (element.Patterns.ExpandCollapse.TryGetPattern(out var expand))
+                expandCollapseState = expand.ExpandCollapseState.ValueOrDefault.ToString();
+        }
+        catch { }
+        try
+        {
+            if (element.Patterns.Scroll.TryGetPattern(out var scroll))
+            {
+                horizontalScrollPercent = scroll.HorizontalScrollPercent.ValueOrDefault;
+                verticalScrollPercent = scroll.VerticalScrollPercent.ValueOrDefault;
+            }
+        }
+        catch { }
+        return new PatternState(value, isReadOnly, isSelected, toggleState, expandCollapseState, horizontalScrollPercent, verticalScrollPercent);
+    }
+
+    private static TextSnapshot ReadText(AutomationElement element)
+    {
+        try
+        {
+            if (!element.Patterns.Text.TryGetPattern(out var text)) return new TextSnapshot(null, null);
+            var document = Truncate(text.DocumentRange.GetText(20_000), 20_000);
+            var selected = string.Join(string.Empty, text.GetSelection().Select(range => range.GetText(20_000)));
+            return new TextSnapshot(document, string.IsNullOrEmpty(selected) ? null : Truncate(selected, 20_000));
+        }
+        catch
+        {
+            return new TextSnapshot(null, null);
+        }
+    }
+
+    private static string StateText(ControlDescriptor control)
+    {
+        var states = new List<string>();
+        if (control.Value is not null) states.Add($"value=\"{Escape(Truncate(control.Value, 160))}\"");
+        if (control.IsReadOnly is not null) states.Add($"readonly={control.IsReadOnly.Value.ToString().ToLowerInvariant()}");
+        if (control.IsSelected is not null) states.Add($"selected={control.IsSelected.Value.ToString().ToLowerInvariant()}");
+        if (control.ToggleState is not null) states.Add($"toggle={control.ToggleState.ToLowerInvariant()}");
+        if (control.ExpandCollapseState is not null) states.Add($"expand={control.ExpandCollapseState.ToLowerInvariant()}");
+        return states.Count == 0 ? string.Empty : " " + string.Join(' ', states);
+    }
+
+    private static void Require(bool supported, string action)
+    {
+        if (!supported) throw new InvalidOperationException($"The selected control does not support the {action} UIA action.");
+    }
+
+    private static void Scroll(AutomationElement element, ScrollAmount horizontal, ScrollAmount vertical, string action)
+    {
+        Require(element.Patterns.Scroll.TryGetPattern(out var scroll), action);
+        scroll!.Scroll(horizontal, vertical);
+    }
+
+    private static string Truncate(string? value, int maxLength)
+    {
+        value ??= string.Empty;
+        return value.Length <= maxLength ? value : value[..maxLength];
+    }
+
     private static AutomationElement[] FindChildren(AutomationElement element)
     {
-        try { return element.FindAllChildren(); } catch { return []; }
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try { return element.FindAllChildren(); }
+            catch when (attempt < 2) { Thread.Sleep(15 * (attempt + 1)); }
+            catch { return []; }
+        }
+        return [];
     }
 
     private static LocatorSegment Segment(AutomationElement element, int ordinal)
@@ -324,7 +500,13 @@ public sealed class UiaService : IDisposable
 
     private static T Safe<T>(Func<T> read, T fallback)
     {
-        try { return read(); } catch { return fallback; }
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try { return read(); }
+            catch when (attempt < 2) { Thread.Sleep(10 * (attempt + 1)); }
+            catch { return fallback; }
+        }
+        return fallback;
     }
 
     private static string Escape(string? value) => (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ");
@@ -346,4 +528,15 @@ public sealed class UiaService : IDisposable
         long WindowId,
         IReadOnlyList<LocatorSegment> Path,
         AutomationElement Element);
+
+    private sealed record PatternState(
+        string? Value,
+        bool? IsReadOnly,
+        bool? IsSelected,
+        string? ToggleState,
+        string? ExpandCollapseState,
+        double? HorizontalScrollPercent,
+        double? VerticalScrollPercent);
+
+    private sealed record TextSnapshot(string? DocumentText, string? SelectedText);
 }

@@ -63,6 +63,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - E2E verifies the final physical pointer position in all three coordinate spaces, including smooth movement to an OCR-grounded word center.
 - `validate-plugin.ps1` gates manifest resources, marketplace resolution, MCP launcher wiring, skill identity, and PowerShell syntax locally and in GitHub Actions; `test.ps1` runs it before compilation.
 
+### v0.8.0 — rich UIA state and secondary actions
+
+- Control descriptors now expose Value/read-only, selection, toggle, expand/collapse, and horizontal/vertical scroll state when supported. Window observations summarize document text, selected text, and selected control ids; `observe_changes` detects state-only transitions.
+- Added `perform_secondary_action`, making 25 MCP tools. It provides explicit focus/raise, selection membership, toggle, expand/collapse, and semantic scroll actions and fails clearly if the required UIA pattern is unavailable.
+- Exact numeric window ids are now rehydrated directly from their HWND even if a window is temporarily hidden or untitled. If an application recreates its top-level HWND, an old id follows only a unique replacement with the same process id, native class, and non-empty title; ambiguous matches fail closed.
+- The deterministic E2E fixture adds an edit value, selectable text, a toggle, a selectable list, and explicit top-level HWND recreation. Repeated runs gate Value/read-only exposure, selected text, exact toggle-state diffs, selected-control summaries, constrained window recovery, all prior WGC/OCR/coordinate/dialog/minimize gates, and cleanup.
+
 ## Current boundaries and next work
 
 - Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.

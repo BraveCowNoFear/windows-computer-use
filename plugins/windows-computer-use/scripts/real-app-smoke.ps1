@@ -82,7 +82,7 @@ function Test-WcuWindow {
             try {
                 Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $id; key = 'alt+f4' } | Out-Null
             } catch {
-                if ($_.Exception.Message -match 'No matching window was found') {
+                if ($_.Exception.Message -match 'No matching window was found|window id is stale') {
                     $closeState = 'closed-during-close-race'
                     $script:openedWindows.Remove($lease) | Out-Null
                     return [ordered]@{

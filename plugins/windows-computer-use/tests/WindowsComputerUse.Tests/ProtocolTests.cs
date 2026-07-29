@@ -10,7 +10,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(24, ToolCatalog.All.Count);
+        Assert.Equal(25, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -23,6 +23,7 @@ public sealed class ProtocolTests
         Assert.Contains("set_window_state", json);
         Assert.Contains("pointer_position", json);
         Assert.Contains("move_pointer", json);
+        Assert.Contains("perform_secondary_action", json);
         Assert.Contains("end_session", json);
     }
 

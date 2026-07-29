@@ -1,6 +1,6 @@
 {
   "name": "windows-computer-use",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Full-control local Windows automation for Codex through UIA3, SendInput, capture, and native OCR.",
   "author": {
     "name": "BraveCowNoFear",

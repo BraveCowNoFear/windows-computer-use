@@ -34,6 +34,8 @@ internal sealed class OccluderForm : Form
 
 internal sealed class TestForm : Form
 {
+    private readonly HashSet<System.Windows.Forms.Timer> _activeTimers = [];
+
     public TestForm()
     {
         Text = "Windows Computer Use Test App";
@@ -206,6 +208,7 @@ internal sealed class TestForm : Form
         {
             var phase = 0;
             var timer = new System.Windows.Forms.Timer { Interval = 700 };
+            _activeTimers.Add(timer);
             timer.Tick += (_, _) =>
             {
                 if (phase++ == 0)
@@ -217,6 +220,7 @@ internal sealed class TestForm : Form
                 {
                     timer.Stop();
                     featureToggle.Checked = false;
+                    _activeTimers.Remove(timer);
                     timer.Dispose();
                 }
             };
@@ -226,6 +230,7 @@ internal sealed class TestForm : Form
         {
             var tick = 0;
             var timer = new System.Windows.Forms.Timer { Interval = 250 };
+            _activeTimers.Add(timer);
             timer.Tick += (_, _) =>
             {
                 tick++;
@@ -233,6 +238,7 @@ internal sealed class TestForm : Form
                 heading.AccessibleName = heading.Text;
                 if (tick < 5) return;
                 timer.Stop();
+                _activeTimers.Remove(timer);
                 timer.Dispose();
             };
             timer.Start();
@@ -257,7 +263,27 @@ internal sealed class TestForm : Form
             mouseStatus.Text = $"Mouse up: {eventArgs.Button}";
             mouseStatus.AccessibleName = mouseStatus.Text;
         };
+        mouseSurface.MouseEnter += (_, _) =>
+        {
+            mouseStatus.Text = "Mouse hover";
+            mouseStatus.AccessibleName = mouseStatus.Text;
+        };
+        mouseSurface.MouseLeave += (_, _) =>
+        {
+            mouseStatus.Text = "Mouse leave";
+            mouseStatus.AccessibleName = mouseStatus.Text;
+        };
         Controls.AddRange([heading, input, commit, readOnlyPaste, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, animate, keyStatus, mouseSurface, mouseStatus]);
         AcceptButton = commit;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            foreach (var timer in _activeTimers.ToArray()) timer.Dispose();
+            _activeTimers.Clear();
+        }
+        base.Dispose(disposing);
     }
 }

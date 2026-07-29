@@ -784,13 +784,20 @@ public sealed class BrokerDispatcher : IDisposable
         var actual = _input.PointerPosition();
         if (actual != requested)
             throw new InvalidOperationException($"Windows placed the pointer at {actual.X},{actual.Y} instead of {requested.Item1},{requested.Item2}.");
+        _screenshots.Clear();
+        Thread.Sleep(100);
+        var afterWindow = window is null ? null : _windows.Resolve(window.Id);
+        var afterCapture = RememberCapture(afterWindow, _capture.Capture(afterWindow));
         return new
         {
             ok = true,
             backend = "win32-set-cursor-pos",
             coordinate_space = coordinateSpace,
             screen_position = new { x = actual.X, y = actual.Y },
-            duration_ms = Math.Clamp(args.Int("duration_ms"), 0, 10_000)
+            duration_ms = Math.Clamp(args.Int("duration_ms"), 0, 10_000),
+            after_screenshot_id = afterCapture.Id,
+            visual_changed = screenshot is null ? (bool?)null : screenshot.Sha256 != afterCapture.Sha256,
+            visual_diff = ActionVisualDiff(screenshot, afterCapture)
         };
     }
 

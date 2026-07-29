@@ -220,6 +220,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - A cross-call gesture can chain the post-down screenshot id into `mouse_up`, eliminating the prior continuity gap where the initiating action invalidated its only grounded screenshot. Unbound window and direct-screen calls still provide a fresh post-action id but correctly omit diff evidence without a trusted baseline.
 - Thirty-seven unit tests remain green. Real WGC E2E chains screenshot-bound left-button down/up against a real window and middle-button down/up against the full desktop, requires comparable changed pixels at both transitions, verifies clean held state, and completes all 42-tool prior gates.
 
+### v0.32.0 — verified pointer movement and hover continuity
+
+- Every `move_pointer` now invalidates older screenshot ids, re-observes its window or virtual-desktop source, and returns a fresh full-source `after_screenshot_id`. Screenshot-bound full/region/nested moves also return exact top-level `visual_diff`; unbound/direct moves correctly return null diff with their fresh frame.
+- Long gestures now chain the newest screenshot through `mouse_down` → `move_pointer` → `mouse_up`. Real WGC E2E verifies WinForms MouseEnter/MouseLeave pixel changes, all three coordinate spaces, full desktop plus region/nested-region mapping, old-id rejection, and both window/desktop held-button chains while completing every prior 42-tool gate.
+- Extra capture pressure exposed two pre-existing E2E environment races: local WinForms timers could be collected before their final Tick, and an unrelated open IME candidate could intercept Ctrl+A. The test form now roots active timers through completion and disposes them deterministically; the input selection setup dismisses only transient composition with Escape without changing the user's input method.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

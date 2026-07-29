@@ -108,10 +108,17 @@ try {
     $observationMoveX = [int]$observedTarget[0].bounds.x + 20 - [int]$desktopObservationMeta.capture.bounds.x
     $observationMoveY = [int]$observedTarget[0].bounds.y + 20 - [int]$desktopObservationMeta.capture.bounds.y
     $observationMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $observationMoveX; y = $observationMoveY; coordinate_space = 'screenshot'; screenshot_id = $desktopObservationMeta.capture.id }
-    if (-not $observationMove.ok -or $observationMove.coordinate_space -ne 'screenshot') {
+    if (-not $observationMove.ok -or $observationMove.coordinate_space -ne 'screenshot' -or -not $observationMove.after_screenshot_id -or -not $observationMove.visual_diff.comparable) {
         throw 'Atomic desktop observation screenshot id was not actionable.'
     }
-    $desktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $desktopObservationMeta.capture.id; x = 0; y = 0; width = 64; height = 64 }
+    $staleObservationRejected = $false
+    try {
+        Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $desktopObservationMeta.capture.id; x = 0; y = 0; width = 16; height = 16 } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'Unknown or expired screenshot_id') { $staleObservationRejected = $true } else { throw }
+    }
+    if (-not $staleObservationRejected) { throw 'Pointer movement did not invalidate its initiating screenshot.' }
+    $desktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $observationMove.after_screenshot_id; x = 0; y = 0; width = 64; height = 64 }
     if (@($desktopRegion.content).Count -ne 2 -or $desktopRegion.content[1].type -ne 'image' -or -not $desktopRegion.content[1].data) {
         throw 'Desktop region capture did not return metadata plus a cropped PNG.'
     }
@@ -123,10 +130,13 @@ try {
         throw "Desktop region capture metadata was not image-relative and topology-bound: $($desktopRegionMeta | ConvertTo-Json -Depth 5 -Compress)"
     }
     $desktopRegionMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $desktopRegionMeta.id }
-    if (-not $desktopRegionMove.ok -or $desktopRegionMove.screen_position.x -ne ($desktopRegionMeta.bounds.x + 10) -or $desktopRegionMove.screen_position.y -ne ($desktopRegionMeta.bounds.y + 10)) {
+    if (-not $desktopRegionMove.ok -or $desktopRegionMove.screen_position.x -ne ($desktopRegionMeta.bounds.x + 10) -or $desktopRegionMove.screen_position.y -ne ($desktopRegionMeta.bounds.y + 10) -or
+        -not $desktopRegionMove.after_screenshot_id -or -not $desktopRegionMove.visual_diff.comparable) {
         throw 'Desktop region screenshot coordinates did not map back to physical pixels.'
     }
-    $nestedDesktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $desktopRegionMeta.id; x = 8; y = 8; width = 32; height = 32 }
+    $refreshedDesktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $desktopRegionMove.after_screenshot_id; x = 0; y = 0; width = 64; height = 64 }
+    $refreshedDesktopRegionMeta = $refreshedDesktopRegion.content[0].text | ConvertFrom-Json
+    $nestedDesktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $refreshedDesktopRegionMeta.id; x = 8; y = 8; width = 32; height = 32 }
     $nestedDesktopRegionMeta = $nestedDesktopRegion.content[0].text | ConvertFrom-Json
     if ($nestedDesktopRegionMeta.width -ne 32 -or $nestedDesktopRegionMeta.height -ne 32 -or
         $nestedDesktopRegionMeta.bounds.x -ne ($desktopRegionMeta.bounds.x + 8) -or
@@ -135,7 +145,8 @@ try {
         throw "Nested cached crop did not retain its full-desktop physical identity: $($nestedDesktopRegionMeta | ConvertTo-Json -Depth 5 -Compress)"
     }
     $nestedRegionMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 5; y = 5; coordinate_space = 'screenshot'; screenshot_id = $nestedDesktopRegionMeta.id }
-    if (-not $nestedRegionMove.ok -or $nestedRegionMove.screen_position.x -ne ($nestedDesktopRegionMeta.bounds.x + 5) -or $nestedRegionMove.screen_position.y -ne ($nestedDesktopRegionMeta.bounds.y + 5)) {
+    if (-not $nestedRegionMove.ok -or $nestedRegionMove.screen_position.x -ne ($nestedDesktopRegionMeta.bounds.x + 5) -or $nestedRegionMove.screen_position.y -ne ($nestedDesktopRegionMeta.bounds.y + 5) -or
+        -not $nestedRegionMove.after_screenshot_id -or -not $nestedRegionMove.visual_diff.comparable) {
         throw 'Nested cached crop was not directly actionable in screenshot coordinates.'
     }
 
@@ -209,6 +220,7 @@ try {
         $exitDetails = if ($testApp.HasExited) { "exit_code=$($testApp.ExitCode)" } else { "new_handle=$($testApp.MainWindowHandle)" }
         throw "Target window changed after UIA focus ($exitDetails): $($afterFocusWindows | ConvertTo-Json -Depth 4 -Compress)"
     }
+    Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'escape' } | Out-Null
     Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+a' } | Out-Null
     $textSelectionState = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 150 }
     if ($textSelectionState.selectedText -ne $testText -or -not $textSelectionState.documentText) {
@@ -371,6 +383,27 @@ try {
     if ($mouseSurface.count -ne 1) { throw 'Could not uniquely resolve the mouse interaction surface.' }
     $mouseX = [int]$mouseSurface.controls[0].bounds.x + [int]($mouseSurface.controls[0].bounds.width / 2)
     $mouseY = [int]$mouseSurface.controls[0].bounds.y + [int]($mouseSurface.controls[0].bounds.height / 2)
+    $mouseOutsideY = [int]$mouseSurface.controls[0].bounds.y - 20
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $mouseX; y = $mouseY; coordinate_space = 'screen' } | Out-Null
+    $initialHoverWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse hover'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $initialHoverWait.matched) { throw 'The test app did not expose a real hover transition.' }
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $mouseX; y = $mouseOutsideY; coordinate_space = 'screen' } | Out-Null
+    $leaveWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse leave'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $leaveWait.matched) { throw 'The test app did not expose a real hover-leave transition.' }
+    $hoverFrame = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $hoverFrameMeta = $hoverFrame.content[0].text | ConvertFrom-Json
+    $hoverMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{
+        window_id = $windowId
+        x = ($mouseX - [int]$hoverFrameMeta.bounds.x)
+        y = ($mouseY - [int]$hoverFrameMeta.bounds.y)
+        coordinate_space = 'screenshot'
+        screenshot_id = $hoverFrameMeta.id
+    }
+    if (-not $hoverMove.ok -or -not $hoverMove.after_screenshot_id -or -not $hoverMove.visual_diff.comparable -or -not $hoverMove.visual_diff.changed) {
+        throw 'Screenshot-bound hover did not return an actionable changed post-move observation.'
+    }
+    $hoverWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse hover'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $hoverWait.matched) { throw 'Screenshot-bound pointer movement did not trigger the real hover state.' }
     $mouseFrame = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
     $mouseFrameMeta = $mouseFrame.content[0].text | ConvertFrom-Json
     $mouseImageX = $mouseX - [int]$mouseFrameMeta.bounds.x
@@ -380,8 +413,9 @@ try {
         -not $heldMouse.data.visual_diff.comparable -or -not $heldMouse.data.visual_diff.changed) { throw 'Screenshot-bound mouse_down did not report a held button and actionable visual evidence.' }
     $mouseDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse down: Left'; state = 'exists'; timeout_ms = 3000 }
     if (-not $mouseDownWait.matched) { throw 'The test app did not observe the held left mouse button.' }
-    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; duration_ms = 80 } | Out-Null
-    $releasedMouse = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ window_id = $windowId; x = ($mouseImageX + 12); y = $mouseImageY; coordinate_space = 'screenshot'; screenshot_id = $heldMouse.data.after_screenshot_id; button = 'left' }
+    $heldMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ window_id = $windowId; x = ($mouseImageX + 12); y = $mouseImageY; coordinate_space = 'screenshot'; screenshot_id = $heldMouse.data.after_screenshot_id; duration_ms = 80 }
+    if (-not $heldMove.ok -or -not $heldMove.after_screenshot_id -or -not $heldMove.visual_diff.comparable) { throw 'Held-button pointer movement did not continue the screenshot-bound gesture chain.' }
+    $releasedMouse = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ window_id = $windowId; x = ($mouseImageX + 12); y = $mouseImageY; coordinate_space = 'screenshot'; screenshot_id = $heldMove.after_screenshot_id; button = 'left' }
     if (@($releasedMouse.data.held_buttons).Count -ne 0 -or -not $releasedMouse.verification.verified -or -not $releasedMouse.data.after_screenshot_id -or
         -not $releasedMouse.data.visual_diff.comparable -or -not $releasedMouse.data.visual_diff.changed) { throw 'Screenshot-bound mouse_up did not release the tracked button with actionable visual evidence.' }
     $mouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Left'; state = 'exists'; timeout_ms = 3000 }
@@ -467,8 +501,6 @@ try {
         $visualDiff.regionCount -lt 1 -or @($visualDiff.regions).Count -lt 1) {
         throw "Exact screenshot comparison did not localize the visual transition: $($visualDiff | ConvertTo-Json -Depth 8 -Compress)"
     }
-    $visualPointer = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $visualChangeMeta.capture.id }
-    if (-not $visualPointer.ok -or $visualPointer.screen_position.x -ne ($visualChangeMeta.capture.bounds.x + 10) -or $visualPointer.screen_position.y -ne ($visualChangeMeta.capture.bounds.y + 10)) { throw 'The visual-change region screenshot was not cached as actionable.' }
     $visualStaleRejected = $false
     try {
         Invoke-WcuTool -Name 'wait_for_visual_change' -Arguments @{ screenshot_id = $visualBaselineMeta.id; max_age_ms = 100; timeout_ms = 100; poll_ms = 25 } | Out-Null
@@ -476,6 +508,9 @@ try {
         $visualStaleRejected = $_.Exception.Message -like '*screenshot_id is stale*'
     }
     if (-not $visualStaleRejected) { throw 'Visual-change wait accepted a source older than max_age_ms.' }
+    $visualPointer = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $visualChangeMeta.capture.id }
+    if (-not $visualPointer.ok -or $visualPointer.screen_position.x -ne ($visualChangeMeta.capture.bounds.x + 10) -or $visualPointer.screen_position.y -ne ($visualChangeMeta.capture.bounds.y + 10) -or
+        -not $visualPointer.after_screenshot_id -or -not $visualPointer.visual_diff.comparable) { throw 'The visual-change region screenshot was not cached as an actionable observed move.' }
     $toggleOffWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_off'; timeout_ms = 1000; poll_ms = 50 }
     if (-not $toggleOffWait.matched) { throw 'Visual-change result did not correspond to the expected semantic toggle transition.' }
 
@@ -577,6 +612,14 @@ try {
     $script:stage = 'pixel-grounding'
     $pixelText = 'Pixel mapped'
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $pixelText } | Out-Null
+    $screenMoveX = [int]$target[0].visibleBounds.x + 8
+    $screenMoveY = [int]$target[0].visibleBounds.y + 8
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $screenMoveX; y = $screenMoveY; coordinate_space = 'screen' } | Out-Null
+    $screenPointer = Invoke-WcuTool -Name 'pointer_position'
+    if ($screenPointer.x -ne $screenMoveX -or $screenPointer.y -ne $screenMoveY) { throw 'Screen-space pointer movement did not verify.' }
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ window_id = $windowId; x = 12; y = 12; coordinate_space = 'window' } | Out-Null
+    $windowPointer = Invoke-WcuTool -Name 'pointer_position'
+    if ($windowPointer.x -ne ([int]$target[0].bounds.x + 12) -or $windowPointer.y -ne ([int]$target[0].bounds.y + 12)) { throw 'Window-space pointer movement did not verify.' }
     $pixelSnapshot = Invoke-WcuTool -Name 'snapshot' -Arguments @{ window_id = $windowId; limit = 100 }
     $pixelSnapshotMeta = $pixelSnapshot.content[0].text | ConvertFrom-Json
     if ($pixelSnapshotMeta.capture.bounds.x -ne $pixelSnapshotMeta.inspection.window.visibleBounds.x -or $pixelSnapshotMeta.capture.bounds.y -ne $pixelSnapshotMeta.inspection.window.visibleBounds.y) {
@@ -608,20 +651,6 @@ try {
     $pixelX = [int]$ocrMatches[0].center.x
     $pixelY = [int]$ocrMatches[0].center.y
 
-    $screenMoveX = [int]$target[0].visibleBounds.x + 8
-    $screenMoveY = [int]$target[0].visibleBounds.y + 8
-    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $screenMoveX; y = $screenMoveY; coordinate_space = 'screen' } | Out-Null
-    $screenPointer = Invoke-WcuTool -Name 'pointer_position'
-    if ($screenPointer.x -ne $screenMoveX -or $screenPointer.y -ne $screenMoveY) { throw 'Screen-space pointer movement did not verify.' }
-    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ window_id = $windowId; x = 12; y = 12; coordinate_space = 'window' } | Out-Null
-    $windowPointer = Invoke-WcuTool -Name 'pointer_position'
-    if ($windowPointer.x -ne ([int]$target[0].bounds.x + 12) -or $windowPointer.y -ne ([int]$target[0].bounds.y + 12)) { throw 'Window-space pointer movement did not verify.' }
-    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id; duration_ms = 120 } | Out-Null
-    $screenshotPointer = Invoke-WcuTool -Name 'pointer_position'
-    $expectedPointerX = [int]$ocrTarget.capture_bounds.x + $pixelX
-    $expectedPointerY = [int]$ocrTarget.capture_bounds.y + $pixelY
-    if ($screenshotPointer.x -ne $expectedPointerX -or $screenshotPointer.y -ne $expectedPointerY) { throw 'Screenshot-space pointer movement did not verify.' }
-
     $staleRejected = $false
     Start-Sleep -Milliseconds 120
     try {
@@ -631,7 +660,16 @@ try {
     }
     if (-not $staleRejected) { throw 'Stale screenshot coordinates were not rejected.' }
 
-    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id }
+    $screenshotMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id; duration_ms = 120 }
+    $screenshotPointer = Invoke-WcuTool -Name 'pointer_position'
+    $expectedPointerX = [int]$ocrTarget.capture_bounds.x + $pixelX
+    $expectedPointerY = [int]$ocrTarget.capture_bounds.y + $pixelY
+    if ($screenshotPointer.x -ne $expectedPointerX -or $screenshotPointer.y -ne $expectedPointerY -or -not $screenshotMove.after_screenshot_id -or -not $screenshotMove.visual_diff.comparable) {
+        throw 'Screenshot-space pointer movement did not verify and re-observe.'
+    }
+    $pixelClickX = $expectedPointerX - [int]$pixelSnapshotMeta.capture.bounds.x
+    $pixelClickY = $expectedPointerY - [int]$pixelSnapshotMeta.capture.bounds.y
+    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = $pixelClickX; y = $pixelClickY; coordinate_space = 'screenshot'; screenshot_id = $screenshotMove.after_screenshot_id }
     if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id -or
         -not $pixelClick.data.visual_diff.comparable -or $pixelClick.data.visual_diff.changed_pixels -lt 0) {
         throw 'Screenshot-bound pixel action did not re-observe the window.'
@@ -674,12 +712,13 @@ try {
     }
     $desktopButtonX = [int]$desktopOcrMatches[0].center.x
     $desktopButtonY = [int]$desktopOcrMatches[0].center.y
-    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopOcr.screenshot_id } | Out-Null
+    $desktopPointerMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopOcr.screenshot_id }
     $desktopPointer = Invoke-WcuTool -Name 'pointer_position'
-    if ($desktopPointer.x -ne ([int]$desktopOcr.capture_bounds.x + $desktopButtonX) -or $desktopPointer.y -ne ([int]$desktopOcr.capture_bounds.y + $desktopButtonY)) {
+    if ($desktopPointer.x -ne ([int]$desktopOcr.capture_bounds.x + $desktopButtonX) -or $desktopPointer.y -ne ([int]$desktopOcr.capture_bounds.y + $desktopButtonY) -or
+        -not $desktopPointerMove.after_screenshot_id -or -not $desktopPointerMove.visual_diff.comparable) {
         throw 'Virtual-desktop screenshot coordinates did not map to physical pointer coordinates.'
     }
-    $desktopClick = Invoke-WcuTool -Name 'click' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopOcr.screenshot_id }
+    $desktopClick = Invoke-WcuTool -Name 'click' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopPointerMove.after_screenshot_id }
     if (-not $desktopClick.ok -or $desktopClick.verification.strategy -ne 'desktop-screenshot-reobserve' -or -not $desktopClick.data.after_screenshot_id -or
         -not $desktopClick.data.visual_diff.comparable -or -not $desktopClick.data.visual_diff.changed -or $desktopClick.data.visual_diff.changed_pixels -lt 1) {
         throw 'Virtual-desktop screenshot-bound click did not re-observe the whole desktop.'
@@ -933,7 +972,8 @@ try {
         desktop_keyboard_hold = $desktopShiftDownWait.matched -and $desktopShiftUpWait.matched
         desktop_keyboard_conflict_rejected = $desktopConflictRejected
         held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched
-        screenshot_bound_mouse_chain = $heldMouse.data.visual_diff.comparable -and $releasedMouse.data.visual_diff.comparable
+        screenshot_bound_hover = $hoverWait.matched -and $hoverMove.visual_diff.changed
+        screenshot_bound_mouse_chain = $heldMouse.data.visual_diff.comparable -and $heldMove.visual_diff.comparable -and $releasedMouse.data.visual_diff.comparable
         desktop_screenshot_mouse_chain = $desktopBoundDown.data.visual_diff.comparable -and $desktopBoundUp.data.visual_diff.comparable
         configurable_button_drag = $rightDragWait.matched
         direct_screen_mouse_roundtrip = $directMouseDownWait.matched -and $directMouseUpWait.matched

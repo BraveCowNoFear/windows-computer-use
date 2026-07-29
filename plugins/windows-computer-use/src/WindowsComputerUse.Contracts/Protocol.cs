@@ -147,6 +147,14 @@ public sealed record VisualChangeResult(
     string PreviousSha256,
     CaptureResult Capture);
 
+public sealed record VisualStabilityResult(
+    bool Stable,
+    long ElapsedMs,
+    long StableForMs,
+    int Samples,
+    string SourceScreenshotId,
+    CaptureResult Capture);
+
 public sealed record WindowHitTest(
     PointerDescriptor Point,
     WindowDescriptor Window,

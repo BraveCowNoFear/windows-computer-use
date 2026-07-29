@@ -169,6 +169,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Exact image change is deliberately broad: animations, blinking carets, clocks, and unrelated desktop pixels can satisfy it. The skill and references therefore retain `wait_for_ui`/`wait_for_window` as the preferred conditions whenever semantic state exists.
 - Thirty unit tests gate the required screenshot contract and read-only annotation. Real WGC E2E drives a two-phase delayed WinForms toggle, first proves the UIA `toggle_on` transition, then captures a baseline and waits for the second pixel transition; the returned PNG has a new id/hash bound to the baseline and UIA independently verifies the final `toggle_off` state.
 
+### v0.24.0 — continuous exact-frame stability wait
+
+- Added read-only `wait_for_visual_stable`, making 40 MCP tools. It reuses a fresh screenshot's original window/desktop identity, establishes stability only from the first new capture after invocation, resets on every changed PNG SHA-256, and returns the latest actionable image on success or timeout.
+- Window identity/bounds, desktop topology, source age, cancellation, and late-result deadline semantics are shared with `wait_for_visual_change`. Exact full-frame stability is deliberately strict and can remain false for clocks, carets, video, notifications, or other dynamic pixels.
+- Thirty-one unit tests gate the required stability interval and read-only schema. Real WGC E2E drives five 250 ms rendering frames, first proves a 500 ms deadline returns `stable=false` with an actionable image, then chains that image into a successful wait requiring at least 500 ms of continuous unchanged samples and independently reads the restored semantic heading.
+- Repeated full-gate work exposed two older clipboard races before the new visual stage: an external sequence change could publish text that disagreed with the UIA selection, and transient ownership could outlast one restore attempt. `copy_text` now spends its single semantic-refocus retry on either missing publication or a provable UIA mismatch; publish/restore loops tolerate bounded external ownership contention for up to ten seconds while retaining verified format/text restoration.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

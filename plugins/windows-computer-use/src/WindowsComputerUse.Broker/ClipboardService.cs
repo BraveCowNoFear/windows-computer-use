@@ -126,34 +126,61 @@ public sealed class ClipboardService : IDisposable
 
     private static ClipboardState PublishTextAndVerify(string text)
     {
-        var deadline = Environment.TickCount64 + 2_000;
+        var deadline = Environment.TickCount64 + 10_000;
         ClipboardState current = new(false, null, []);
+        ExternalException? lastContention = null;
         do
         {
-            RunSta(() =>
+            try
             {
-                Retry(() =>
+                RunSta(() =>
                 {
-                    var data = new DataObject();
-                    data.SetData(DataFormats.UnicodeText, false, text);
-                    Clipboard.SetDataObject(data, true, 10, 50);
+                    Retry(() =>
+                    {
+                        var data = new DataObject();
+                        data.SetData(DataFormats.UnicodeText, false, text);
+                        Clipboard.SetDataObject(data, true, 10, 50);
+                        return true;
+                    });
                     return true;
                 });
-                return true;
-            });
-            current = RunSta(ReadState);
+            }
+            catch (ExternalException error)
+            {
+                lastContention = error;
+                if (Environment.TickCount64 >= deadline) break;
+                Thread.Sleep(100);
+                continue;
+            }
+            try { current = RunSta(ReadState); }
+            catch (ExternalException error)
+            {
+                lastContention = error;
+                if (Environment.TickCount64 >= deadline) break;
+                Thread.Sleep(100);
+                continue;
+            }
             if (current.ContainsText && string.Equals(current.Text, text, StringComparison.Ordinal))
             {
                 var sequence = NativeMethods.GetClipboardSequenceNumber();
                 Thread.Sleep(150);
-                var stable = RunSta(ReadState);
+                ClipboardState stable;
+                try { stable = RunSta(ReadState); }
+                catch (ExternalException error)
+                {
+                    lastContention = error;
+                    if (Environment.TickCount64 >= deadline) break;
+                    Thread.Sleep(100);
+                    continue;
+                }
                 if (sequence == NativeMethods.GetClipboardSequenceNumber() &&
                     stable.ContainsText && string.Equals(stable.Text, text, StringComparison.Ordinal)) return stable;
                 current = stable;
             }
         } while (Environment.TickCount64 < deadline);
         throw new InvalidOperationException(
-            $"Clipboard text did not remain stable after write; contains_text={current.ContainsText}, normalized_sha256={NormalizedHash(current.Text)}.");
+            $"Clipboard text did not remain stable after write; contains_text={current.ContainsText}, normalized_sha256={NormalizedHash(current.Text)}.",
+            lastContention);
     }
 
     public object Restore(string backupId)
@@ -184,25 +211,49 @@ public sealed class ClipboardService : IDisposable
 
     private static ClipboardState RestoreAndVerify(ClipboardSnapshot snapshot)
     {
-        var deadline = Environment.TickCount64 + 2_000;
+        var deadline = Environment.TickCount64 + 10_000;
         ClipboardState restored = new(false, null, []);
         string[] missingFormats = snapshot.Formats;
+        ExternalException? lastContention = null;
         do
         {
-            RunSta(() =>
+            try
             {
-                RestoreSnapshot(snapshot);
-                return true;
-            });
+                RunSta(() =>
+                {
+                    RestoreSnapshot(snapshot);
+                    return true;
+                });
+            }
+            catch (ExternalException error)
+            {
+                lastContention = error;
+                if (Environment.TickCount64 >= deadline) break;
+                Thread.Sleep(100);
+                continue;
+            }
             do
             {
-                restored = RunSta(ReadState);
+                try { restored = RunSta(ReadState); }
+                catch (ExternalException error)
+                {
+                    lastContention = error;
+                    Thread.Sleep(100);
+                    break;
+                }
                 missingFormats = snapshot.Formats.Except(restored.Formats, StringComparer.OrdinalIgnoreCase).ToArray();
                 if (SnapshotMatches(snapshot, restored, missingFormats))
                 {
                     var sequence = NativeMethods.GetClipboardSequenceNumber();
                     Thread.Sleep(150);
-                    var stable = RunSta(ReadState);
+                    ClipboardState stable;
+                    try { stable = RunSta(ReadState); }
+                    catch (ExternalException error)
+                    {
+                        lastContention = error;
+                        Thread.Sleep(100);
+                        break;
+                    }
                     var stableMissing = snapshot.Formats.Except(stable.Formats, StringComparer.OrdinalIgnoreCase).ToArray();
                     if (sequence == NativeMethods.GetClipboardSequenceNumber() && SnapshotMatches(snapshot, stable, stableMissing)) return stable;
                     restored = stable;
@@ -214,7 +265,8 @@ public sealed class ClipboardService : IDisposable
         } while (Environment.TickCount64 < deadline);
         throw new InvalidOperationException(
             $"Clipboard restore verification failed; expected text={snapshot.ContainsText}/{NormalizedHash(snapshot.Text)}, " +
-            $"actual={restored.ContainsText}/{NormalizedHash(restored.Text)}, missing formats: {string.Join(", ", missingFormats)}");
+            $"actual={restored.ContainsText}/{NormalizedHash(restored.Text)}, missing formats: {string.Join(", ", missingFormats)}",
+            lastContention);
     }
 
     private static bool SnapshotMatches(ClipboardSnapshot snapshot, ClipboardState state, string[] missingFormats) =>

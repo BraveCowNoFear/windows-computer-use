@@ -47,6 +47,7 @@ internal sealed class TestForm : Form
 
         var heading = new Label
         {
+            Name = "HeadingLabel",
             Text = "Semantic UI automation test",
             AccessibleName = "Semantic UI automation test",
             AutoSize = true,
@@ -127,6 +128,14 @@ internal sealed class TestForm : Form
             Text = "ENABLE LATER",
             Location = new Point(200, 286),
             Size = new Size(145, 36)
+        };
+        var animate = new Button
+        {
+            Name = "AnimateButton",
+            AccessibleName = "Render animation",
+            Text = "ANIMATE",
+            Location = new Point(365, 286),
+            Size = new Size(120, 36)
         };
         var keyStatus = new Label
         {
@@ -213,6 +222,21 @@ internal sealed class TestForm : Form
             };
             timer.Start();
         };
+        animate.Click += (_, _) =>
+        {
+            var tick = 0;
+            var timer = new System.Windows.Forms.Timer { Interval = 250 };
+            timer.Tick += (_, _) =>
+            {
+                tick++;
+                heading.Text = tick < 5 ? $"Rendering frame {tick}" : "Semantic UI automation test";
+                heading.AccessibleName = heading.Text;
+                if (tick < 5) return;
+                timer.Stop();
+                timer.Dispose();
+            };
+            timer.Start();
+        };
         KeyDown += (_, eventArgs) =>
         {
             keyStatus.Text = $"Key down: {eventArgs.KeyCode}";
@@ -233,7 +257,7 @@ internal sealed class TestForm : Form
             mouseStatus.Text = $"Mouse up: {eventArgs.Button}";
             mouseStatus.AccessibleName = mouseStatus.Text;
         };
-        Controls.AddRange([heading, input, commit, readOnlyPaste, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, keyStatus, mouseSurface, mouseStatus]);
+        Controls.AddRange([heading, input, commit, readOnlyPaste, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, animate, keyStatus, mouseSurface, mouseStatus]);
         AcceptButton = commit;
     }
 }

@@ -41,7 +41,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(39, ToolCatalog.All.Count);
+        Assert.Equal(40, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -49,6 +49,7 @@ public sealed class ProtocolTests
         Assert.Contains("snapshot", json);
         Assert.Contains("observe_desktop", json);
         Assert.Contains("wait_for_visual_change", json);
+        Assert.Contains("wait_for_visual_stable", json);
         Assert.Contains("observe_changes", json);
         Assert.Contains("display_info", json);
         Assert.Contains("find_text", json);
@@ -172,6 +173,22 @@ public sealed class ProtocolTests
         var wait = Assert.Single(ToolCatalog.All, tool => tool.Name == "wait_for_visual_change");
         var schema = JsonSerializer.SerializeToElement(wait.InputSchema, ProtocolJson.Options);
         var properties = schema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("timeout_ms", out _));
+        Assert.True(properties.TryGetProperty("poll_ms", out _));
+        Assert.True(properties.TryGetProperty("max_age_ms", out _));
+        Assert.Contains("screenshot_id", schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
+
+        var annotations = JsonSerializer.SerializeToElement(wait.Annotations, ProtocolJson.Options);
+        Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
+    [Fact]
+    public void WaitForVisualStable_RequiresContinuousIntervalAndIsReadOnly()
+    {
+        var wait = Assert.Single(ToolCatalog.All, tool => tool.Name == "wait_for_visual_stable");
+        var schema = JsonSerializer.SerializeToElement(wait.InputSchema, ProtocolJson.Options);
+        var properties = schema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("stable_ms", out _));
         Assert.True(properties.TryGetProperty("timeout_ms", out _));
         Assert.True(properties.TryGetProperty("poll_ms", out _));
         Assert.True(properties.TryGetProperty("max_age_ms", out _));

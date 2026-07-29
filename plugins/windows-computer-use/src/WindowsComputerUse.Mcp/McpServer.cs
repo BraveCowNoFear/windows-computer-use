@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.23.0" },
-            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use semantic waits first and wait_for_visual_change for pixel-only transitions; bind visual pixels to their screenshot id; restore minimized windows before vision."
+            serverInfo = new { name = "windows-computer-use", version = "0.24.0" },
+            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use semantic waits first, then visual change/stability for pixel-only transitions; bind visual pixels to their screenshot id; restore minimized windows before vision."
         };
     }
 
@@ -86,7 +86,7 @@ public sealed class McpServer : IAsyncDisposable
         try
         {
             var result = await _broker.CallAsync(name, arguments, cancellationToken);
-            if (name is "capture" or "snapshot" or "observe_desktop" or "wait_for_visual_change")
+            if (name is "capture" or "snapshot" or "observe_desktop" or "wait_for_visual_change" or "wait_for_visual_stable")
             {
                 var snapshot = name == "snapshot"
                     ? result.Deserialize<WindowStateSnapshot>(ProtocolJson.Options)
@@ -97,7 +97,10 @@ public sealed class McpServer : IAsyncDisposable
                 var visualChange = name == "wait_for_visual_change"
                     ? result.Deserialize<VisualChangeResult>(ProtocolJson.Options)
                     : null;
-                var capture = snapshot?.Capture ?? desktop?.Capture ?? visualChange?.Capture ?? result.Deserialize<CaptureResult>(ProtocolJson.Options)
+                var visualStable = name == "wait_for_visual_stable"
+                    ? result.Deserialize<VisualStabilityResult>(ProtocolJson.Options)
+                    : null;
+                var capture = snapshot?.Capture ?? desktop?.Capture ?? visualChange?.Capture ?? visualStable?.Capture ?? result.Deserialize<CaptureResult>(ProtocolJson.Options)
                     ?? throw new InvalidDataException("Capture result was empty.");
                 var metadata = snapshot is not null
                     ? JsonSerializer.Serialize(new
@@ -140,6 +143,26 @@ public sealed class McpServer : IAsyncDisposable
                         visualChange.ElapsedMs,
                         visualChange.PreviousScreenshotId,
                         visualChange.PreviousSha256,
+                        Capture = new
+                        {
+                            capture.Id,
+                            capture.Width,
+                            capture.Height,
+                            capture.Bounds,
+                            capture.Backend,
+                            capture.CapturedAt,
+                            capture.Sha256,
+                            capture.Path
+                        }
+                    }, ProtocolJson.Options)
+                    : visualStable is not null
+                    ? JsonSerializer.Serialize(new
+                    {
+                        visualStable.Stable,
+                        visualStable.ElapsedMs,
+                        visualStable.StableForMs,
+                        visualStable.Samples,
+                        visualStable.SourceScreenshotId,
                         Capture = new
                         {
                             capture.Id,

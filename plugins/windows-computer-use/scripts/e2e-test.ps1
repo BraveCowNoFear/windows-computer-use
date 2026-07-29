@@ -47,7 +47,7 @@ function Invoke-WcuTool {
     param([string]$Name, [hashtable]$Arguments = @{})
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
     if ($result.isError) { throw "Stage $script:stage; tool $Name failed: $($result.content[0].text)" }
-    if ($Name -in @('capture', 'snapshot', 'observe_desktop', 'wait_for_visual_change')) { return $result }
+    if ($Name -in @('capture', 'snapshot', 'observe_desktop', 'wait_for_visual_change', 'wait_for_visual_stable')) { return $result }
     return ($result.content[0].text | ConvertFrom-Json)
 }
 
@@ -79,7 +79,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 39) { throw "Expected 39 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 40) { throw "Expected 40 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -407,6 +407,36 @@ try {
     if (-not $visualStaleRejected) { throw 'Visual-change wait accepted a source older than max_age_ms.' }
     $toggleOffWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_off'; timeout_ms = 1000; poll_ms = 50 }
     if (-not $toggleOffWait.matched) { throw 'Visual-change result did not correspond to the expected semantic toggle transition.' }
+
+    $script:stage = 'visual-stability'
+    $animate = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'AnimateButton'; limit = 2 }
+    if ($animate.count -ne 1) { throw 'Could not resolve the deterministic rendering-animation control.' }
+    Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $animate.controls[0].id } | Out-Null
+    $stableBaseline = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $stableBaselineMeta = $stableBaseline.content[0].text | ConvertFrom-Json
+    $visualUnstable = Invoke-WcuTool -Name 'wait_for_visual_stable' -Arguments @{ screenshot_id = $stableBaselineMeta.id; stable_ms = 500; timeout_ms = 500; poll_ms = 50 }
+    if (@($visualUnstable.content).Count -ne 2 -or $visualUnstable.content[1].type -ne 'image' -or -not $visualUnstable.content[1].data) {
+        throw 'Visual-stability timeout did not return metadata plus the latest PNG.'
+    }
+    $visualUnstableMeta = $visualUnstable.content[0].text | ConvertFrom-Json
+    if ($visualUnstableMeta.stable -or $visualUnstableMeta.elapsedMs -lt 500 -or $visualUnstableMeta.capture.id -eq $stableBaselineMeta.id) {
+        throw "Visual-stability wait incorrectly accepted an actively changing frame sequence: $($visualUnstableMeta | ConvertTo-Json -Depth 5 -Compress)"
+    }
+    $visualStable = Invoke-WcuTool -Name 'wait_for_visual_stable' -Arguments @{ screenshot_id = $visualUnstableMeta.capture.id; stable_ms = 500; timeout_ms = 3000; poll_ms = 50 }
+    if (@($visualStable.content).Count -ne 2 -or $visualStable.content[1].type -ne 'image' -or $visualStable.content[1].mimeType -ne 'image/png' -or -not $visualStable.content[1].data) {
+        throw 'Visual-stability wait did not return text metadata plus a fresh PNG image.'
+    }
+    $visualStableMeta = $visualStable.content[0].text | ConvertFrom-Json
+    if (-not $visualStableMeta.stable -or $visualStableMeta.elapsedMs -lt 700 -or $visualStableMeta.elapsedMs -gt 3000 -or $visualStableMeta.stableForMs -lt 500 -or $visualStableMeta.samples -lt 3) {
+        throw "Visual-stability wait returned before the animation settled or missed its deadline: $($visualStableMeta | ConvertTo-Json -Depth 5 -Compress)"
+    }
+    if ($visualStableMeta.sourceScreenshotId -ne $visualUnstableMeta.capture.id -or $visualStableMeta.capture.id -eq $visualUnstableMeta.capture.id) {
+        throw 'Visual-stability wait did not bind the final capture to its source screenshot.'
+    }
+    $renderFinal = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'HeadingLabel'; limit = 2 }
+    if ($renderFinal.count -ne 1 -or $renderFinal.controls[0].name -ne 'Semantic UI automation test') {
+        throw "Visual-stability result did not correspond to the final semantic rendering state: stable=$($visualStableMeta | ConvertTo-Json -Depth 5 -Compress) heading=$($renderFinal | ConvertTo-Json -Depth 5 -Compress)"
+    }
 
     $script:stage = 'selection-state'
     $beta = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; name = 'Beta'; control_type = 'ListItem'; limit = 2 }
@@ -753,6 +783,12 @@ try {
         visual_change_screenshot = $visualChangeMeta.capture.id
         visual_change_screenshot_action = $visualPointer.ok
         visual_change_stale_rejected = $visualStaleRejected
+        visual_stability_wait = $visualStableMeta.stable
+        visual_stability_timeout = -not $visualUnstableMeta.stable
+        visual_stability_timeout_ms = $visualUnstableMeta.elapsedMs
+        visual_stability_wait_ms = $visualStableMeta.elapsedMs
+        visual_stability_duration_ms = $visualStableMeta.stableForMs
+        visual_stability_samples = $visualStableMeta.samples
         selection_condition_wait = $selectionWait.matched
         selection_condition_wait_ms = $selectionWait.elapsed_ms
         image_template_grounding = $imageTarget.count

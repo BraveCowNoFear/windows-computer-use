@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.24.0" },
-            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use semantic waits first, then visual change/stability for pixel-only transitions; bind visual pixels to their screenshot id; restore minimized windows before vision."
+            serverInfo = new { name = "windows-computer-use", version = "0.25.0" },
+            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; use capture_region to isolate relevant pixels; use desktop=true keyboard input only for unchanged foreground focus; use atomic paste_text/copy_text for reversible transfer; use semantic waits first, then visual change/stability; bind pixels to screenshot ids; restore minimized windows before vision."
         };
     }
 
@@ -86,7 +86,7 @@ public sealed class McpServer : IAsyncDisposable
         try
         {
             var result = await _broker.CallAsync(name, arguments, cancellationToken);
-            if (name is "capture" or "snapshot" or "observe_desktop" or "wait_for_visual_change" or "wait_for_visual_stable")
+            if (name is "capture" or "capture_region" or "snapshot" or "observe_desktop" or "wait_for_visual_change" or "wait_for_visual_stable")
             {
                 var snapshot = name == "snapshot"
                     ? result.Deserialize<WindowStateSnapshot>(ProtocolJson.Options)

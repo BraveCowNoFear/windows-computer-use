@@ -14,6 +14,7 @@
 - 物理鼠标位置读取、平滑移动/悬停、五键鼠标点击/拖拽/滚轮、可跨动作保持的鼠标按下/释放、带隐式修饰键与重复时序的组合键、可跟踪的键盘按下/释放、应用启动、窗口激活和虚拟桌面坐标。
 - 物理多屏拓扑：每块显示器的边界、工作区、有效 DPI、主屏标记和缩放百分比。
 - 无系统选框的原生 Windows Graphics Capture 窗口 PNG 捕获，以及完整虚拟桌面屏幕复制；两者都会返回可绑定后续物理输入的新鲜截图 ID。
+- 可操作的 `capture_region` 从新鲜窗口/桌面帧按图像坐标裁剪，同时保留完整来源身份；区域像素仍能回映物理输入，视觉等待也可避开无关整帧运动。
 - 以 DWM 可见边界对齐 WGC，并显式支持 `window` / `screen` / `screenshot` 坐标空间，避免不可见缩放边框造成点击偏移。
 - 原生 `Windows.Media.Ocr` 行/词边界、带截图 ID 的新鲜 OCR，以及可直接衔接点击的 `find_text` 文本定位。
 - 本地 PNG/JPEG 模板匹配：受控的 0.25×–4× 多尺度搜索、粗到细采样颜色评分、跨尺度重叠抑制与新鲜截图绑定坐标，用于无文字图标和画布目标。
@@ -21,7 +22,7 @@
 - 窗口 owner/root-owner 关系、用于瞬态弹窗的 `wait_for_window`，以及带验证的最小化/最大化/还原控制。
 - 状态条件等待代替盲目 sleep：UIA 使用语义谓词，纯像素变化用 `wait_for_visual_change`，动画/加载结束用连续稳定的 `wait_for_visual_stable`；每种视觉结果都带新的可操作截图。
 - 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
-- 40 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
+- 41 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
 - 与 `desktop-control-for-windows` 共用全局 UI 锁协议。
 - 真实 WinForms 端到端测试：MCP 握手、UIA 发现、丰富状态差异、选中文本、二级动作、中文输入、原子粘贴/复制成功与故意失败时的恢复、语义 Invoke、状态等待、窗口/桌面截图、桌面 OCR 到点击、跨动作键鼠手势与清理。
 
@@ -77,13 +78,15 @@ codex plugin marketplace add .
 
 ## MCP 工具面
 
-40 个工具分别是：`list_windows`、`display_info`、`pointer_position`、`window_from_point`、`launch_app`、`wait_for_window`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`perform_secondary_action`、`enter_text`、`paste_text`、`copy_text`、`wait_for_ui`、`wait_for_visual_change`、`wait_for_visual_stable`、`capture`、`observe_desktop`、`snapshot`、`ocr`、`find_text`、`find_image`、`read_clipboard_text`、`write_clipboard_text`、`restore_clipboard`、`move_pointer`、`click`、`mouse_down`、`mouse_up`、`press_key`、`key_down`、`key_up`、`type_text`、`scroll`、`drag`、`set_window_state`、`set_window_bounds`、`activate_window`、`end_session`。
+41 个工具分别是：`list_windows`、`display_info`、`pointer_position`、`window_from_point`、`launch_app`、`wait_for_window`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`perform_secondary_action`、`enter_text`、`paste_text`、`copy_text`、`wait_for_ui`、`wait_for_visual_change`、`wait_for_visual_stable`、`capture`、`capture_region`、`observe_desktop`、`snapshot`、`ocr`、`find_text`、`find_image`、`read_clipboard_text`、`write_clipboard_text`、`restore_clipboard`、`move_pointer`、`click`、`mouse_down`、`mouse_up`、`press_key`、`key_down`、`key_up`、`type_text`、`scroll`、`drag`、`set_window_state`、`set_window_bounds`、`activate_window`、`end_session`。
 
 窗口应使用 `list_windows` 返回的精确 ID；即使窗口暂时隐藏或无标题，Broker 也会直接按 HWND 恢复描述。如果应用重建 HWND，只有进程 ID、原生窗口类和非空标题仍一致且替代窗口唯一时，旧 ID 才会自动跟随；否则拒绝模糊匹配并要求重新选择。瞬态弹窗用 `wait_for_window` 配合 `owner_window_id` 定位。操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID 和当前状态字段，状态切换后可把旧 `observation_id` 交给 `observe_changes`；需要比主 Invoke 更明确的 UIA 动作时使用 `perform_secondary_action`。确需坐标时，文字用 `find_text`、已知本地图像用可选受控尺度范围的 `find_image`、陌生画面用 `snapshot`，再把返回的 `screenshot_id` 与 `coordinate_space: "screenshot"` 交给坐标动作。`capture`、`ocr`、`find_text`、`find_image` 均支持 `desktop: true`；完整虚拟桌面截图 ID 可直接驱动移动、点击、滚动和拖拽，无需选择或激活窗口，显式 `coordinate_space: "screen"` 也可直接操作整桌面。语义/输入动作会让旧截图失效；目标移动/缩放、显示拓扑变化或超过 `max_age_ms` 后 Broker 会拒绝盲点。窗口级视觉观察前应先还原最小化窗口。旧的选窗调用仍默认使用相对窗口的物理像素。
 
 没有可靠语义谓词时，把新鲜窗口或桌面 `screenshot_id` 交给 `wait_for_visual_change`。它会持续捕获同一来源、校验窗口几何或显示拓扑、比较精确 PNG SHA-256，并在匹配或超时后都返回一张新的可操作截图。能用 `wait_for_ui` 时仍应优先使用它，因为动画、时钟、闪烁光标或桌面任意无关像素变化都可能满足精确画面变化。
 
 变化开始后，可用 `wait_for_visual_stable` 要求新捕获画面连续 `stable_ms` 保持同一精确 PNG 哈希；任一样本变化都会重新计时。超过 `timeout_ms` 仍不稳定时返回 `stable: false` 与最新截图。稳定时长只从调用后真实观测开始计算；时钟、光标、视频和桌面通知可能让整帧永远无法稳定。
+
+只有一个图像区域重要时使用 `capture_region`。`x/y/width/height` 相对一次新捕获的完整来源；返回裁剪 PNG 的 `bounds` 是物理边界，截图坐标 `(0,0)` 直接映射到该物理原点。从区域 ID 开始的画面变化/稳定等待会持续重捕并裁剪同一区域，同时仍校验完整窗口几何或桌面拓扑；链式等待结果会继承该区域身份。
 
 仅为传递文本临时借用剪贴板时，优先调用 `paste_text`/`copy_text`：前者替换或追加并等待 UIA Value，后者沿用当前选择或全选、等待真实剪贴板序列变化；未发布或复制结果与可观测 UIA 选区不一致时，最多语义重聚焦重试一次。两者都保存全部直接格式，并在成功或失败后恢复；发布/恢复可容忍最长十秒的外部剪贴板占用竞争。只有任务需要让剪贴板状态跨越多个动作时，才手工组合 `write_clipboard_text` 与 `restore_clipboard`。备份仅存在于当前 Broker 会话；遇到无法安全物化的格式时会在改写前失败。
 

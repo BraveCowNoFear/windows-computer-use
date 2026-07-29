@@ -176,6 +176,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Thirty-one unit tests gate the required stability interval and read-only schema. Real WGC E2E drives five 250 ms rendering frames, first proves a 500 ms deadline returns `stable=false` with an actionable image, then chains that image into a successful wait requiring at least 500 ms of continuous unchanged samples and independently reads the restored semantic heading.
 - Repeated full-gate work exposed two older clipboard races before the new visual stage: an external sequence change could publish text that disagreed with the UIA selection, and transient ownership could outlast one restore attempt. `copy_text` now spends its single semantic-refocus retry on either missing publication or a provable UIA mismatch; publish/restore loops tolerate bounded external ownership contention for up to ten seconds while retaining verified format/text restoration.
 
+### v0.25.0 — actionable region capture and region-scoped waits
+
+- Added read-only `capture_region`, making 41 MCP tools. Required `x/y/width/height` crop a fresh window or desktop frame in source-image coordinates and return a compact PNG whose bounds and screenshot-space coordinates map directly to the cropped physical origin.
+- Screenshot cache identity now separates full source bounds from public cropped bounds and retains the relative image region. Window geometry or desktop topology is still validated against the full source; `wait_for_visual_change` and `wait_for_visual_stable` automatically re-capture/crop only the same region.
+- The first chained stability E2E exposed that wait results initially lost private crop identity even though their PNG/bounds were correct. Wait results now inherit source bounds and region, so a timeout image can feed the next wait or screenshot-bound action without being mistaken for a full frame.
+- Thirty-two unit tests gate rectangle requirements/read-only schema. Real WGC E2E captures and physically maps a 64x64 desktop region, detects the delayed Toggle transition in a 172x40 window region, chains timeout-to-stable waits over a 340x60 heading region, and completes all prior semantic, input, clipboard, OCR, image, lifecycle, and cleanup gates.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

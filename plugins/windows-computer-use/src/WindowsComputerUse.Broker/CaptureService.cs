@@ -65,30 +65,53 @@ public sealed class CaptureService
 
         using (bitmap)
         {
-            using var stream = new MemoryStream();
-            bitmap.Save(stream, ImageFormat.Png);
-            var bytes = stream.ToArray();
-            if (!string.IsNullOrWhiteSpace(outputPath))
-            {
-                var fullPath = Path.GetFullPath(outputPath);
-                Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-                File.WriteAllBytes(fullPath, bytes);
-                outputPath = fullPath;
-            }
             var bounds = new RectDto(captureBounds.X, captureBounds.Y, bitmap.Width, bitmap.Height);
-            var capturedAt = DateTimeOffset.UtcNow;
-            return new CaptureResult(
-                $"shot-{Guid.NewGuid():N}",
-                "image/png",
-                Convert.ToBase64String(bytes),
-                bitmap.Width,
-                bitmap.Height,
-                bounds,
-                backend,
-                capturedAt,
-                Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-                outputPath);
+            return Encode(bitmap, bounds, backend, outputPath);
         }
+    }
+
+    public CaptureResult Crop(CaptureResult source, RectDto imageRegion, string? outputPath = null)
+    {
+        if (imageRegion.X < 0 || imageRegion.Y < 0 || imageRegion.Width <= 0 || imageRegion.Height <= 0 ||
+            imageRegion.Right > source.Width || imageRegion.Bottom > source.Height)
+            throw new ArgumentOutOfRangeException(nameof(imageRegion), "Region must be a positive rectangle fully inside the source image.");
+
+        using var sourceStream = new MemoryStream(Convert.FromBase64String(source.Data));
+        using var sourceBitmap = new Bitmap(sourceStream);
+        using var cropped = sourceBitmap.Clone(
+            new Rectangle(imageRegion.X, imageRegion.Y, imageRegion.Width, imageRegion.Height),
+            PixelFormat.Format32bppArgb);
+        var bounds = new RectDto(
+            source.Bounds.X + imageRegion.X,
+            source.Bounds.Y + imageRegion.Y,
+            imageRegion.Width,
+            imageRegion.Height);
+        return Encode(cropped, bounds, $"{source.Backend}+region", outputPath);
+    }
+
+    private static CaptureResult Encode(Bitmap bitmap, RectDto bounds, string backend, string? outputPath)
+    {
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+        var bytes = stream.ToArray();
+        if (!string.IsNullOrWhiteSpace(outputPath))
+        {
+            var fullPath = Path.GetFullPath(outputPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            File.WriteAllBytes(fullPath, bytes);
+            outputPath = fullPath;
+        }
+        return new CaptureResult(
+            $"shot-{Guid.NewGuid():N}",
+            "image/png",
+            Convert.ToBase64String(bytes),
+            bitmap.Width,
+            bitmap.Height,
+            bounds,
+            backend,
+            DateTimeOffset.UtcNow,
+            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            outputPath);
     }
 
     private static void CopyScreen(Graphics graphics, RectDto bounds) =>

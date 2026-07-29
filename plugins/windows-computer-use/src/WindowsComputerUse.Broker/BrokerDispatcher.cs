@@ -61,6 +61,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "wait_for_visual_change" => await WaitForVisualChangeAsync(args, cancellationToken),
                 "wait_for_visual_stable" => await WaitForVisualStableAsync(args, cancellationToken),
                 "capture" => Capture(args),
+                "capture_region" => CaptureRegion(args),
                 "observe_desktop" => ObserveDesktop(args),
                 "snapshot" => Snapshot(args),
                 "ocr" => await OcrAsync(args, cancellationToken),
@@ -105,7 +106,7 @@ public sealed class BrokerDispatcher : IDisposable
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "wait_for_visual_change" or "wait_for_visual_stable" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "wait_for_visual_change" or "wait_for_visual_stable" or "capture" or "capture_region" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "set_window_bounds" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
@@ -454,12 +455,12 @@ public sealed class BrokerDispatcher : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             var window = ResolveVisualSource(previous);
-            var capture = _capture.Capture(window);
+            var capture = CaptureVisualSource(window, previous);
             var elapsed = Environment.TickCount64 - started;
             if (!string.Equals(capture.Sha256, previous.Sha256, StringComparison.OrdinalIgnoreCase) && elapsed <= timeout)
-                return new VisualChangeResult(true, elapsed, screenshotId, previous.Sha256, RememberCapture(window, capture));
+                return new VisualChangeResult(true, elapsed, screenshotId, previous.Sha256, RememberVisualCapture(window, capture, previous));
             if (elapsed >= timeout)
-                return new VisualChangeResult(false, elapsed, screenshotId, previous.Sha256, RememberCapture(window, capture));
+                return new VisualChangeResult(false, elapsed, screenshotId, previous.Sha256, RememberVisualCapture(window, capture, previous));
 
             await Task.Delay((int)Math.Min(poll, timeout - elapsed), cancellationToken);
         }
@@ -484,7 +485,7 @@ public sealed class BrokerDispatcher : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             var window = ResolveVisualSource(source);
-            var capture = _capture.Capture(window);
+            var capture = CaptureVisualSource(window, source);
             samples++;
             var elapsed = Environment.TickCount64 - started;
             if (!string.Equals(capture.Sha256, candidateHash, StringComparison.OrdinalIgnoreCase))
@@ -494,9 +495,9 @@ public sealed class BrokerDispatcher : IDisposable
             }
             var stableFor = elapsed - stableSince;
             if (stableFor >= stableTarget && elapsed <= timeout)
-                return new VisualStabilityResult(true, elapsed, stableFor, samples, screenshotId, RememberCapture(window, capture));
+                return new VisualStabilityResult(true, elapsed, stableFor, samples, screenshotId, RememberVisualCapture(window, capture, source));
             if (elapsed >= timeout)
-                return new VisualStabilityResult(false, elapsed, stableFor, samples, screenshotId, RememberCapture(window, capture));
+                return new VisualStabilityResult(false, elapsed, stableFor, samples, screenshotId, RememberVisualCapture(window, capture, source));
 
             await Task.Delay((int)Math.Min(poll, timeout - elapsed), cancellationToken);
         }
@@ -513,10 +514,21 @@ public sealed class BrokerDispatcher : IDisposable
                 throw new InvalidOperationException("The source window moved or resized after the screenshot. Capture or snapshot it again before waiting on visual content.");
             return window;
         }
-        if (source.CaptureBounds != VirtualDesktopBounds())
+        if (source.SourceBounds != VirtualDesktopBounds())
             throw new InvalidOperationException("The virtual desktop topology changed after the screenshot. Capture it again before waiting on visual content.");
         return null;
     }
+
+    private CaptureResult CaptureVisualSource(WindowDescriptor? window, ScreenshotRecord source)
+    {
+        var full = _capture.Capture(window);
+        if (full.Bounds != source.SourceBounds)
+            throw new InvalidOperationException("The visual source bounds changed after the screenshot. Capture the intended region again before waiting on visual content.");
+        return source.ImageRegion is null ? full : _capture.Crop(full, source.ImageRegion);
+    }
+
+    private CaptureResult RememberVisualCapture(WindowDescriptor? window, CaptureResult capture, ScreenshotRecord source) =>
+        RememberCapture(window, capture, source.SourceBounds, source.ImageRegion);
 
     private CaptureResult Capture(JsonElement args)
     {
@@ -524,6 +536,17 @@ public sealed class BrokerDispatcher : IDisposable
         if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
         var window = desktop ? null : _windows.Resolve(args);
         return RememberCapture(window, _capture.Capture(window, args.String("path")));
+    }
+
+    private CaptureResult CaptureRegion(JsonElement args)
+    {
+        var desktop = args.Bool("desktop");
+        if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+        var window = desktop ? null : _windows.Resolve(args);
+        var full = _capture.Capture(window);
+        var region = new RectDto(args.Int("x"), args.Int("y"), args.Int("width"), args.Int("height"));
+        var cropped = _capture.Crop(full, region, args.String("path"));
+        return RememberCapture(window, cropped, full.Bounds, region);
     }
 
     private DesktopStateSnapshot ObserveDesktop(JsonElement args)
@@ -1116,9 +1139,20 @@ public sealed class BrokerDispatcher : IDisposable
         string.IsNullOrWhiteSpace(args.String("screenshot_id")) &&
         !HasWindowSelector(args);
 
-    private CaptureResult RememberCapture(WindowDescriptor? window, CaptureResult capture)
+    private CaptureResult RememberCapture(
+        WindowDescriptor? window,
+        CaptureResult capture,
+        RectDto? sourceBounds = null,
+        RectDto? imageRegion = null)
     {
-        _screenshots[capture.Id] = new ScreenshotRecord(window?.Id, window?.Bounds, capture.Bounds, capture.CapturedAt, capture.Sha256);
+        _screenshots[capture.Id] = new ScreenshotRecord(
+            window?.Id,
+            window?.Bounds,
+            sourceBounds ?? capture.Bounds,
+            capture.Bounds,
+            imageRegion,
+            capture.CapturedAt,
+            capture.Sha256);
         while (_screenshots.Count > 32) _screenshots.Remove(_screenshots.First().Key);
         return capture;
     }
@@ -1151,7 +1185,7 @@ public sealed class BrokerDispatcher : IDisposable
         if (!string.Equals(args.String("coordinate_space"), "screenshot", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("A virtual-desktop screenshot_id must be used with coordinate_space=screenshot.");
         var currentBounds = VirtualDesktopBounds();
-        if (screenshot.CaptureBounds != currentBounds)
+        if (screenshot.SourceBounds != currentBounds)
             throw new InvalidOperationException("The virtual desktop topology changed after the screenshot. Capture it again before using screenshot coordinates.");
         ValidateScreenshotAge(args, screenshot);
         return screenshot;
@@ -1280,5 +1314,12 @@ public sealed class BrokerDispatcher : IDisposable
         before.VerticalScrollPercent == after.VerticalScrollPercent &&
         before.Patterns.SequenceEqual(after.Patterns, StringComparer.Ordinal);
 
-    private sealed record ScreenshotRecord(long? WindowId, RectDto? WindowBounds, RectDto CaptureBounds, DateTimeOffset CapturedAt, string Sha256);
+    private sealed record ScreenshotRecord(
+        long? WindowId,
+        RectDto? WindowBounds,
+        RectDto SourceBounds,
+        RectDto CaptureBounds,
+        RectDto? ImageRegion,
+        DateTimeOffset CapturedAt,
+        string Sha256);
 }

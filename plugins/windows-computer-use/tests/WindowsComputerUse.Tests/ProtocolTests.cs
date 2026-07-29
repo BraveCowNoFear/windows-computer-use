@@ -41,7 +41,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(40, ToolCatalog.All.Count);
+        Assert.Equal(41, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -50,6 +50,7 @@ public sealed class ProtocolTests
         Assert.Contains("observe_desktop", json);
         Assert.Contains("wait_for_visual_change", json);
         Assert.Contains("wait_for_visual_stable", json);
+        Assert.Contains("capture_region", json);
         Assert.Contains("observe_changes", json);
         Assert.Contains("display_info", json);
         Assert.Contains("find_text", json);
@@ -195,6 +196,22 @@ public sealed class ProtocolTests
         Assert.Contains("screenshot_id", schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
 
         var annotations = JsonSerializer.SerializeToElement(wait.Annotations, ProtocolJson.Options);
+        Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
+    [Fact]
+    public void CaptureRegion_RequiresImageRectangleAndIsReadOnly()
+    {
+        var capture = Assert.Single(ToolCatalog.All, tool => tool.Name == "capture_region");
+        var schema = JsonSerializer.SerializeToElement(capture.InputSchema, ProtocolJson.Options);
+        var required = schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Contains("x", required);
+        Assert.Contains("y", required);
+        Assert.Contains("width", required);
+        Assert.Contains("height", required);
+        Assert.True(schema.GetProperty("properties").TryGetProperty("desktop", out _));
+
+        var annotations = JsonSerializer.SerializeToElement(capture.Annotations, ProtocolJson.Options);
         Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
     }
 

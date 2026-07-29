@@ -47,7 +47,7 @@ function Invoke-WcuTool {
     param([string]$Name, [hashtable]$Arguments = @{})
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
     if ($result.isError) { throw "Stage $script:stage; tool $Name failed: $($result.content[0].text)" }
-    if ($Name -in @('capture', 'snapshot', 'observe_desktop', 'wait_for_visual_change', 'wait_for_visual_stable')) { return $result }
+    if ($Name -in @('capture', 'capture_region', 'snapshot', 'observe_desktop', 'wait_for_visual_change', 'wait_for_visual_stable')) { return $result }
     return ($result.content[0].text | ConvertFrom-Json)
 }
 
@@ -79,7 +79,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 40) { throw "Expected 40 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 41) { throw "Expected 41 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -110,6 +110,21 @@ try {
     $observationMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $observationMoveX; y = $observationMoveY; coordinate_space = 'screenshot'; screenshot_id = $desktopObservationMeta.capture.id }
     if (-not $observationMove.ok -or $observationMove.coordinate_space -ne 'screenshot') {
         throw 'Atomic desktop observation screenshot id was not actionable.'
+    }
+    $desktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ desktop = $true; x = 0; y = 0; width = 64; height = 64 }
+    if (@($desktopRegion.content).Count -ne 2 -or $desktopRegion.content[1].type -ne 'image' -or -not $desktopRegion.content[1].data) {
+        throw 'Desktop region capture did not return metadata plus a cropped PNG.'
+    }
+    $desktopRegionMeta = $desktopRegion.content[0].text | ConvertFrom-Json
+    if ($desktopRegionMeta.width -ne 64 -or $desktopRegionMeta.height -ne 64 -or
+        $desktopRegionMeta.bounds.x -ne $desktopObservationMeta.topology.virtualDesktop.x -or
+        $desktopRegionMeta.bounds.y -ne $desktopObservationMeta.topology.virtualDesktop.y -or
+        $desktopRegionMeta.backend -notlike '*+region') {
+        throw "Desktop region capture metadata was not image-relative and topology-bound: $($desktopRegionMeta | ConvertTo-Json -Depth 5 -Compress)"
+    }
+    $desktopRegionMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $desktopRegionMeta.id }
+    if (-not $desktopRegionMove.ok -or $desktopRegionMove.screen_position.x -ne ($desktopRegionMeta.bounds.x + 10) -or $desktopRegionMove.screen_position.y -ne ($desktopRegionMeta.bounds.y + 10)) {
+        throw 'Desktop region screenshot coordinates did not map back to physical pixels.'
     }
 
     $windows = Invoke-WcuTool -Name 'list_windows'
@@ -383,8 +398,17 @@ try {
     Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $delayedToggle.controls[0].id } | Out-Null
     $toggleWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_on'; timeout_ms = 2000; poll_ms = 50 }
     if (-not $toggleWait.matched -or $toggleWait.elapsed_ms -lt 300 -or $toggleWait.elapsed_ms -gt 2000) { throw 'Toggle-state condition wait did not poll through the delayed UI transition within its deadline.' }
-    $visualBaseline = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $visualFrame = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $visualFrameMeta = $visualFrame.content[0].text | ConvertFrom-Json
+    $toggleRegionX = [Math]::Max(0, [int]$toggle.controls[0].bounds.x - [int]$visualFrameMeta.bounds.x - 6)
+    $toggleRegionY = [Math]::Max(0, [int]$toggle.controls[0].bounds.y - [int]$visualFrameMeta.bounds.y - 6)
+    $toggleRegionWidth = [Math]::Min([int]$visualFrameMeta.width - $toggleRegionX, [int]$toggle.controls[0].bounds.width + 12)
+    $toggleRegionHeight = [Math]::Min([int]$visualFrameMeta.height - $toggleRegionY, [int]$toggle.controls[0].bounds.height + 12)
+    $visualBaseline = Invoke-WcuTool -Name 'capture_region' -Arguments @{ window_id = $windowId; x = $toggleRegionX; y = $toggleRegionY; width = $toggleRegionWidth; height = $toggleRegionHeight }
     $visualBaselineMeta = $visualBaseline.content[0].text | ConvertFrom-Json
+    if ($visualBaselineMeta.width -ne $toggleRegionWidth -or $visualBaselineMeta.height -ne $toggleRegionHeight -or $visualBaselineMeta.backend -notlike '*+region') {
+        throw 'Window region capture did not preserve the requested image-relative rectangle.'
+    }
     $visualChange = Invoke-WcuTool -Name 'wait_for_visual_change' -Arguments @{ screenshot_id = $visualBaselineMeta.id; timeout_ms = 2500; poll_ms = 50 }
     if (@($visualChange.content).Count -ne 2 -or $visualChange.content[1].type -ne 'image' -or $visualChange.content[1].mimeType -ne 'image/png' -or -not $visualChange.content[1].data) {
         throw 'Visual-change wait did not return text metadata plus a fresh PNG image.'
@@ -397,7 +421,7 @@ try {
         throw 'Visual-change wait did not bind its result to the source screenshot and a distinct content hash.'
     }
     $visualPointer = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $visualChangeMeta.capture.id }
-    if (-not $visualPointer.ok) { throw 'The visual-change result screenshot was not cached as actionable.' }
+    if (-not $visualPointer.ok -or $visualPointer.screen_position.x -ne ($visualChangeMeta.capture.bounds.x + 10) -or $visualPointer.screen_position.y -ne ($visualChangeMeta.capture.bounds.y + 10)) { throw 'The visual-change region screenshot was not cached as actionable.' }
     $visualStaleRejected = $false
     try {
         Invoke-WcuTool -Name 'wait_for_visual_change' -Arguments @{ screenshot_id = $visualBaselineMeta.id; max_age_ms = 100; timeout_ms = 100; poll_ms = 25 } | Out-Null
@@ -411,8 +435,16 @@ try {
     $script:stage = 'visual-stability'
     $animate = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'AnimateButton'; limit = 2 }
     if ($animate.count -ne 1) { throw 'Could not resolve the deterministic rendering-animation control.' }
+    $heading = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'HeadingLabel'; limit = 2 }
+    if ($heading.count -ne 1) { throw 'Could not resolve the deterministic rendering region.' }
     Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $animate.controls[0].id } | Out-Null
-    $stableBaseline = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $stableFrame = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $stableFrameMeta = $stableFrame.content[0].text | ConvertFrom-Json
+    $headingRegionX = [Math]::Max(0, [int]$heading.controls[0].bounds.x - [int]$stableFrameMeta.bounds.x - 6)
+    $headingRegionY = [Math]::Max(0, [int]$heading.controls[0].bounds.y - [int]$stableFrameMeta.bounds.y - 6)
+    $headingRegionWidth = [Math]::Min([int]$stableFrameMeta.width - $headingRegionX, 340)
+    $headingRegionHeight = [Math]::Min([int]$stableFrameMeta.height - $headingRegionY, 60)
+    $stableBaseline = Invoke-WcuTool -Name 'capture_region' -Arguments @{ window_id = $windowId; x = $headingRegionX; y = $headingRegionY; width = $headingRegionWidth; height = $headingRegionHeight }
     $stableBaselineMeta = $stableBaseline.content[0].text | ConvertFrom-Json
     $visualUnstable = Invoke-WcuTool -Name 'wait_for_visual_stable' -Arguments @{ screenshot_id = $stableBaselineMeta.id; stable_ms = 500; timeout_ms = 500; poll_ms = 50 }
     if (@($visualUnstable.content).Count -ne 2 -or $visualUnstable.content[1].type -ne 'image' -or -not $visualUnstable.content[1].data) {
@@ -734,6 +766,7 @@ try {
         atomic_desktop_observation = $true
         desktop_observation_windows = @($desktopObservationMeta.windows).Count
         desktop_observation_screenshot_action = $observationMove.ok
+        desktop_region_screenshot_action = $desktopRegionMove.ok
         primary_scale_percent = $displayInfo.displays[0].scalePercent
         virtual_desktop = "$($displayInfo.virtualDesktop.x),$($displayInfo.virtualDesktop.y),$($displayInfo.virtualDesktop.width),$($displayInfo.virtualDesktop.height)"
         window_id = $windowId
@@ -781,6 +814,7 @@ try {
         visual_change_wait = $visualChangeMeta.matched
         visual_change_wait_ms = $visualChangeMeta.elapsedMs
         visual_change_screenshot = $visualChangeMeta.capture.id
+        visual_change_region = "$($visualChangeMeta.capture.width)x$($visualChangeMeta.capture.height)"
         visual_change_screenshot_action = $visualPointer.ok
         visual_change_stale_rejected = $visualStaleRejected
         visual_stability_wait = $visualStableMeta.stable

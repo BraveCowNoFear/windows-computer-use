@@ -65,6 +65,33 @@ public sealed class InputService
         }
     }
 
+    public (int X, int Y) PointerPosition()
+    {
+        if (!NativeMethods.GetCursorPos(out var point))
+            throw new InvalidOperationException($"GetCursorPos failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        return (point.X, point.Y);
+    }
+
+    public void MovePointer(int x, int y, int durationMs = 0)
+    {
+        durationMs = Math.Clamp(durationMs, 0, 10_000);
+        if (durationMs == 0)
+        {
+            EnsureCursorPosition(x, y);
+            return;
+        }
+        var start = PointerPosition();
+        var steps = Math.Clamp(durationMs / 12, 4, 240);
+        for (var i = 1; i <= steps; i++)
+        {
+            var progress = i / (double)steps;
+            EnsureCursorPosition(
+                (int)Math.Round(start.X + (x - start.X) * progress),
+                (int)Math.Round(start.Y + (y - start.Y) * progress));
+            Thread.Sleep(Math.Max(1, durationMs / steps));
+        }
+    }
+
     public void Drag(int fromX, int fromY, int toX, int toY, int durationMs = 300)
     {
         NativeMethods.SetCursorPos(fromX, fromY);
@@ -147,5 +174,11 @@ public sealed class InputService
     {
         if (NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>()) != inputs.Length)
             throw new InvalidOperationException($"SendInput failed with Win32 error {Marshal.GetLastWin32Error()}.");
+    }
+
+    private static void EnsureCursorPosition(int x, int y)
+    {
+        if (!NativeMethods.SetCursorPos(x, y))
+            throw new InvalidOperationException($"SetCursorPos failed with Win32 error {Marshal.GetLastWin32Error()}.");
     }
 }

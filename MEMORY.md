@@ -56,6 +56,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Visual tools explicitly reject minimized targets and instruct the caller to restore first; they never label an unreliable minimized frame as a successful observation.
 - E2E opens a real owned WinForms dialog asynchronously, proves its owner/root-owner linkage, closes it semantically, waits for absence, minimizes the main window, proves capture rejection, and restores it.
 
+### v0.7.0 — pointer parity
+
+- Added `pointer_position` and `move_pointer`, making 24 MCP tools. Pointer movement can be immediate or smoothly interpolated for hover interactions and deliberately does not click or activate a window.
+- Screen coordinates work without a window selector. Window coordinates use the exact HWND bounds; screenshot coordinates can resolve their source window directly from a fresh screenshot id and still run stale/moved/resized validation.
+- E2E verifies the final physical pointer position in all three coordinate spaces, including smooth movement to an OCR-grounded word center.
+
 ## Current boundaries and next work
 
 - Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.

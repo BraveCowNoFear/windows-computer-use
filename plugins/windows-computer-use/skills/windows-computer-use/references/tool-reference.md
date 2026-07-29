@@ -12,6 +12,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | --- | --- |
 | `list_windows` | Return visible top-level windows, process identity, bounds, class, owner/root-owner links, and state. |
 | `display_info` | Return physical virtual-desktop and per-monitor bounds, work areas, effective DPI, primary flag, and scale. |
+| `pointer_position` | Return the current pointer position in physical virtual-desktop screen pixels. |
 | `launch_app` | Launch an executable, registered app, file, or URI. |
 | `wait_for_window` | Wait for a top-level/owned window to exist or disappear by title, app, class, process, or owner ids. |
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
@@ -24,6 +25,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize an existing image or fresh capture with Windows.Media.Ocr. |
 | `find_text` | Fresh-capture a window and return matching OCR line/word bounds, centers, and screenshot id. |
+| `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
 | `click` | Click window-relative or screen coordinates with left, right, or middle button. |
 | `press_key` | Send a `+`-separated chord such as `ctrl+s`, `alt+f4`, or `shift+tab`. |
 | `type_text` | Type arbitrary Unicode into the focused control. |

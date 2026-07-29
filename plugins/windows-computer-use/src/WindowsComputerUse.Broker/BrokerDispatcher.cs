@@ -43,6 +43,7 @@ public sealed class BrokerDispatcher : IDisposable
                     access_mode = "full-control"
                 },
                 "display_info" => _displays.GetTopology(),
+                "pointer_position" => PointerPosition(),
                 "launch_app" => Launch(args),
                 "wait_for_window" => await WaitForWindowAsync(args, cancellationToken),
                 "inspect_window" => Inspect(args),
@@ -55,6 +56,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "snapshot" => Snapshot(args),
                 "ocr" => await OcrAsync(args, cancellationToken),
                 "find_text" => await FindTextAsync(args, cancellationToken),
+                "move_pointer" => MovePointer(args),
                 "click" => Click(args),
                 "press_key" => PressKey(args),
                 "type_text" => TypeText(args),
@@ -79,7 +81,7 @@ public sealed class BrokerDispatcher : IDisposable
 
     private static bool NeedsUiLock(string method) => method is
         "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or
-        "click" or "press_key" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
+        "move_pointer" or "click" or "press_key" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
 
     private object Launch(JsonElement args)
     {
@@ -93,6 +95,12 @@ public sealed class BrokerDispatcher : IDisposable
             try { process.WaitForInputIdle(timeout); } catch { Thread.Sleep(Math.Min(timeout, 1000)); }
         }
         return new { ok = true, process_id = process.Id, app };
+    }
+
+    private object PointerPosition()
+    {
+        var point = _input.PointerPosition();
+        return new { x = point.X, y = point.Y, coordinate_space = "physical-screen-pixels" };
     }
 
     private async Task<object> WaitForWindowAsync(JsonElement args, CancellationToken cancellationToken)
@@ -289,6 +297,52 @@ public sealed class BrokerDispatcher : IDisposable
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    private object MovePointer(JsonElement args)
+    {
+        var coordinateSpace = args.String("coordinate_space")?.ToLowerInvariant() ?? "screen";
+        if (coordinateSpace is not "window" and not "screen" and not "screenshot")
+            throw new ArgumentException("coordinate_space must be window, screen, or screenshot");
+        var screenshotId = args.String("screenshot_id");
+        var hasWindowSelector = args.Long("window_id") != 0 ||
+            !string.IsNullOrWhiteSpace(args.String("title")) ||
+            !string.IsNullOrWhiteSpace(args.String("app"));
+        WindowDescriptor? window = null;
+        if (hasWindowSelector)
+        {
+            window = _windows.Resolve(args);
+        }
+        else if (!string.IsNullOrWhiteSpace(screenshotId))
+        {
+            if (!_screenshots.TryGetValue(screenshotId, out var cached))
+                throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or snapshot the target window again.");
+            window = _windows.Resolve(cached.WindowId);
+        }
+        else if (coordinateSpace != "screen")
+        {
+            throw new ArgumentException($"coordinate_space={coordinateSpace} requires a window selector or screenshot_id.");
+        }
+
+        var screenshot = window is null ? null : ValidateScreenshot(args, window);
+        var requested = coordinateSpace switch
+        {
+            "screen" => (args.Int("x"), args.Int("y")),
+            "window" => _input.WindowPoint(window!, args.Int("x"), args.Int("y"), true),
+            _ => ScreenshotPoint(screenshot, args.Int("x"), args.Int("y"))
+        };
+        _input.MovePointer(requested.Item1, requested.Item2, args.Int("duration_ms"));
+        var actual = _input.PointerPosition();
+        if (actual != requested)
+            throw new InvalidOperationException($"Windows placed the pointer at {actual.X},{actual.Y} instead of {requested.Item1},{requested.Item2}.");
+        return new
+        {
+            ok = true,
+            backend = "win32-set-cursor-pos",
+            coordinate_space = coordinateSpace,
+            screen_position = new { x = actual.X, y = actual.Y },
+            duration_ms = Math.Clamp(args.Int("duration_ms"), 0, 10_000)
+        };
     }
 
     private ActionResult Click(JsonElement args)

@@ -66,7 +66,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 22) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 24) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -144,6 +144,20 @@ try {
     }
     $pixelX = [int]$ocrMatches[0].center.x
     $pixelY = [int]$ocrMatches[0].center.y
+
+    $screenMoveX = [int]$target[0].visibleBounds.x + 8
+    $screenMoveY = [int]$target[0].visibleBounds.y + 8
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $screenMoveX; y = $screenMoveY; coordinate_space = 'screen' } | Out-Null
+    $screenPointer = Invoke-WcuTool -Name 'pointer_position'
+    if ($screenPointer.x -ne $screenMoveX -or $screenPointer.y -ne $screenMoveY) { throw 'Screen-space pointer movement did not verify.' }
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ window_id = $windowId; x = 12; y = 12; coordinate_space = 'window' } | Out-Null
+    $windowPointer = Invoke-WcuTool -Name 'pointer_position'
+    if ($windowPointer.x -ne ([int]$target[0].bounds.x + 12) -or $windowPointer.y -ne ([int]$target[0].bounds.y + 12)) { throw 'Window-space pointer movement did not verify.' }
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id; duration_ms = 120 } | Out-Null
+    $screenshotPointer = Invoke-WcuTool -Name 'pointer_position'
+    $expectedPointerX = [int]$ocrTarget.capture_bounds.x + $pixelX
+    $expectedPointerY = [int]$ocrTarget.capture_bounds.y + $pixelY
+    if ($screenshotPointer.x -ne $expectedPointerX -or $screenshotPointer.y -ne $expectedPointerY) { throw 'Screenshot-space pointer movement did not verify.' }
 
     $staleRejected = $false
     Start-Sleep -Milliseconds 120
@@ -243,6 +257,7 @@ try {
         transient_dialog_closed = $dialogClosed.matched
         minimized_capture_rejected = $minimizedCaptureRejected
         window_state_restored = -not $restored.window.isMinimized
+        pointer_coordinate_spaces_verified = 3
     } | ConvertTo-Json -Depth 6
 } finally {
     if ($null -ne $mcp) {

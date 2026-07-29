@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.6.0" },
-            instructions = "Full-control Windows MCP. Prefer UIA, use wait_for_window with owner ids for dialogs, and bind snapshot/find_text pixels to the same screenshot id. Restore minimized windows before visual observation."
+            serverInfo = new { name = "windows-computer-use", version = "0.7.0" },
+            instructions = "Full-control Windows MCP. Prefer UIA; use wait_for_window for dialogs; bind snapshot/find_text pixels to their screenshot id; use move_pointer for hover; restore minimized windows before vision."
         };
     }
 

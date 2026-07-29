@@ -40,7 +40,7 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 - UIA3: FlaUI 5.0 over Microsoft UI Automation.
 - Windows and capture: picker-free `Windows.Graphics.Capture` for HWNDs on Windows 10 1903+, then `PrintWindow(PW_RENDERFULLCONTENT)` and physical screen copy fallback. WGC image origins use `DWMWA_EXTENDED_FRAME_BOUNDS` rather than GetWindowRect's invisible resize border.
 - Displays and DPI: `EnumDisplayMonitors` + `GetMonitorInfo` physical virtual-screen rectangles and effective per-monitor DPI from Shcore.
-- Input: User32 `SendInput`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard.
+- Input: User32 `SendInput` plus verified `GetCursorPos`/`SetCursorPos`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard. Pointer moves support immediate or smooth screen/window/screenshot-space hover without activating a window.
 - OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs. Lines/words carry image bounds; `find_text` returns screenshot and screen bounds plus image-relative centers.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
 - Window lifecycle: verified Win32 minimize/maximize/restore plus owner-chain discovery. Visual tools reject minimized targets with explicit restore guidance instead of returning misleading frames.

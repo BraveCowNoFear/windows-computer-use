@@ -9,6 +9,7 @@ public static class ToolCatalog
         Tool("list_windows", "List visible top-level Windows windows with native class and owner/root-owner relationships. Always use a returned window_id instead of guessing a target.",
             Props(("include_untitled", S("boolean", "Include visible titleless top-level windows, default false.")))),
         Tool("display_info", "Return physical virtual-desktop bounds plus every monitor's bounds, work area, primary flag, effective DPI, and scale percentage.", Props()),
+        Tool("pointer_position", "Return the current mouse pointer position in physical virtual-desktop screen pixels.", Props()),
         Tool("launch_app", "Launch any app, executable, file, URI, or registered shell target in full-control mode.",
             Props(("app", S("string", "Executable path, app id, file, or URI.")), ("arguments", S("string", "Optional command-line arguments.")), ("wait_ms", S("integer", "Wait for initial UI readiness."))), ["app"]),
         Tool("wait_for_window", "Wait for a top-level window or owned transient dialog to appear or disappear without blind sleeps.",
@@ -33,6 +34,8 @@ public static class ToolCatalog
             WindowProps(("desktop", S("boolean", "OCR the virtual desktop.")), ("path", S("string", "Existing image path; when omitted a fresh capture is used.")), ("language", S("string", "Optional BCP-47 language tag.")))),
         Tool("find_text", "Capture one window, run Windows OCR, and return matching line/word bounds plus a screenshot id for coordinate_space=screenshot actions.",
             WindowProps(("text", S("string", "OCR text to locate.")), ("match", Enum("exact", "contains")), ("case_sensitive", S("boolean", "Use ordinal case-sensitive matching.")), ("language", S("string", "Optional BCP-47 language tag.")), ("limit", S("integer", "Maximum matches, default 50."))), ["text"]),
+        Tool("move_pointer", "Move or smoothly hover the mouse pointer without clicking or activating a target window. Screen coordinates need no window selector.",
+            WindowProps(("x", S("integer", "Target X coordinate.")), ("y", S("integer", "Target Y coordinate.")), ("coordinate_space", Enum("window", "screen", "screenshot")), ("screenshot_id", S("string", "Fresh screenshot id; required for screenshot coordinates and can identify its window.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms.")), ("duration_ms", S("integer", "Smooth movement duration from 0 to 10000 ms."))), ["x", "y"]),
         Tool("click", "Click physical pixels in a selected window using SendInput. Coordinates are window-relative by default.",
             WindowProps(("x", S("integer", "X coordinate.")), ("y", S("integer", "Y coordinate.")), ("coordinate_space", Enum("window", "screen", "screenshot")), ("relative", S("boolean", "Legacy window-relative flag, default true; coordinate_space takes precedence.")), ("button", Enum("left", "right", "middle")), ("count", S("integer", "Click count 1-4.")), ("screenshot_id", S("string", "Bind the coordinates to a recent capture/snapshot; required for screenshot coordinates.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms."))), ["x", "y"]),
         Tool("press_key", "Press a + separated key chord in a selected window, such as ctrl+s or alt+f4.",
@@ -53,7 +56,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

@@ -99,6 +99,10 @@ internal static class NativeMethods
     internal static extern bool SetCursorPos(int x, int y);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetCursorPos(out NativePoint point);
+
+    [DllImport("user32.dll")]
     internal static extern int GetSystemMetrics(int index);
 
     [DllImport("user32.dll")]
@@ -164,6 +168,13 @@ internal static class NativeMethods
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativePoint
+    {
+        public int X;
+        public int Y;
     }
 
     [StructLayout(LayoutKind.Sequential)]

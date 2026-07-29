@@ -1,4 +1,9 @@
-param([switch]$KeepTestWindow, [switch]$KeepArtifacts, [switch]$RequireWgc)
+param(
+    [switch]$KeepTestWindow,
+    [switch]$KeepArtifacts,
+    [switch]$RequireWgc,
+    [ValidateSet('All', 'KeyboardVisual')][string]$Scenario = 'All'
+)
 
 $ErrorActionPreference = 'Stop'
 $pluginRoot = Split-Path -Parent $PSScriptRoot
@@ -80,6 +85,77 @@ try {
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
     if (@($tools.tools).Count -ne 42) { throw "Expected 42 MCP tools, found $(@($tools.tools).Count)." }
+
+    if ($Scenario -eq 'KeyboardVisual') {
+        $script:stage = 'keyboard-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one keyboard smoke target, found $($target.Count)." }
+        $windowId = [long]$target[0].id
+        $input = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'InputBox'; limit = 2 }
+        if ($input.count -ne 1) { throw 'Could not resolve the keyboard smoke input control.' }
+
+        $baselineText = 'Keyboard baseline'
+        Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $baselineText } | Out-Null
+        Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
+        Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'escape' } | Out-Null
+        $windowSelect = Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+a' }
+        if (-not $windowSelect.data.after_screenshot_id -or -not $windowSelect.data.visual_diff.comparable -or -not $windowSelect.data.visual_diff.changed) {
+            throw 'Window shortcut omitted changed post-action visual evidence.'
+        }
+        $windowText = 'Window ' + [char]0x952E + [char]0x76D8
+        $windowTyped = Invoke-WcuTool -Name 'type_text' -Arguments @{ window_id = $windowId; text = $windowText }
+        if (-not $windowTyped.data.after_screenshot_id -or -not $windowTyped.data.visual_diff.comparable -or -not $windowTyped.data.visual_diff.changed) {
+            throw 'Window Unicode typing omitted changed post-action visual evidence.'
+        }
+        $windowTextWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $windowText; timeout_ms = 1500 }
+        if (-not $windowTextWait.matched) { throw 'Window Unicode typing did not reach the focused input.' }
+        $windowDown = Invoke-WcuTool -Name 'key_down' -Arguments @{ window_id = $windowId; key = 'shift' }
+        if (@($windowDown.data.held_keys) -notcontains 'shift' -or -not $windowDown.data.after_screenshot_id -or -not $windowDown.data.visual_diff.comparable -or -not $windowDown.data.visual_diff.changed) {
+            throw 'Window key_down omitted held state or changed visual evidence.'
+        }
+        $windowUp = Invoke-WcuTool -Name 'key_up' -Arguments @{ window_id = $windowId; key = 'shift' }
+        if (@($windowUp.data.held_keys).Count -ne 0 -or -not $windowUp.data.after_screenshot_id -or -not $windowUp.data.visual_diff.comparable -or -not $windowUp.data.visual_diff.changed) {
+            throw 'Window key_up omitted released state or changed visual evidence.'
+        }
+
+        Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $baselineText } | Out-Null
+        Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
+        Invoke-WcuTool -Name 'press_key' -Arguments @{ desktop = $true; key = 'escape' } | Out-Null
+        $desktopSelect = Invoke-WcuTool -Name 'press_key' -Arguments @{ desktop = $true; key = 'ctrl+a' }
+        if ([long]$desktopSelect.data.foreground_before.id -ne $windowId -or -not $desktopSelect.data.after_screenshot_id -or -not $desktopSelect.data.visual_diff.comparable -or -not $desktopSelect.data.visual_diff.changed) {
+            throw 'Desktop shortcut changed foreground or omitted changed visual evidence.'
+        }
+        $desktopText = 'Desktop ' + [char]0x952E + [char]0x76D8
+        $desktopTyped = Invoke-WcuTool -Name 'type_text' -Arguments @{ desktop = $true; text = $desktopText }
+        if ([long]$desktopTyped.data.foreground_after.id -ne $windowId -or -not $desktopTyped.data.after_screenshot_id -or -not $desktopTyped.data.visual_diff.comparable -or -not $desktopTyped.data.visual_diff.changed) {
+            throw 'Desktop Unicode typing changed foreground or omitted changed visual evidence.'
+        }
+        $desktopTextWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $desktopText; timeout_ms = 1500 }
+        if (-not $desktopTextWait.matched) { throw 'Desktop Unicode typing did not reach the focused input.' }
+        $desktopDown = Invoke-WcuTool -Name 'key_down' -Arguments @{ desktop = $true; key = 'shift' }
+        if (@($desktopDown.data.held_keys) -notcontains 'shift' -or -not $desktopDown.data.after_screenshot_id -or -not $desktopDown.data.visual_diff.comparable -or -not $desktopDown.data.visual_diff.changed) {
+            throw 'Desktop key_down omitted held state or changed visual evidence.'
+        }
+        $desktopUp = Invoke-WcuTool -Name 'key_up' -Arguments @{ desktop = $true; key = 'shift' }
+        if (@($desktopUp.data.held_keys).Count -ne 0 -or -not $desktopUp.data.after_screenshot_id -or -not $desktopUp.data.visual_diff.comparable -or -not $desktopUp.data.visual_diff.changed) {
+            throw 'Desktop key_up omitted released state or changed visual evidence.'
+        }
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'keyboard-visual'
+            tools = @($tools.tools).Count
+            window_shortcut_visual = $windowSelect.data.visual_diff.changed
+            window_unicode_visual = $windowTyped.data.visual_diff.changed
+            window_key_state_visual = $windowDown.data.visual_diff.changed -and $windowUp.data.visual_diff.changed
+            desktop_shortcut_visual = $desktopSelect.data.visual_diff.changed
+            desktop_unicode_visual = $desktopTyped.data.visual_diff.changed
+            desktop_key_state_visual = $desktopDown.data.visual_diff.changed -and $desktopUp.data.visual_diff.changed
+            released_keys = $ended.released_keys
+        } | ConvertTo-Json -Depth 5
+        return
+    }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -336,37 +412,56 @@ try {
 
     $script:stage = 'keyboard-state'
     $heldShift = Invoke-WcuTool -Name 'key_down' -Arguments @{ window_id = $windowId; key = 'shift' }
-    if (@($heldShift.data.held_keys) -notcontains 'shift') { throw 'key_down did not report the held Shift key.' }
+    if (@($heldShift.data.held_keys) -notcontains 'shift' -or -not $heldShift.data.after_screenshot_id -or -not $heldShift.data.visual_diff.comparable -or -not $heldShift.data.visual_diff.changed) {
+        throw 'key_down did not report the held Shift key with changed visual evidence.'
+    }
     $shiftDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key down: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
     if (-not $shiftDownWait.matched) { throw 'The test app did not observe the held Shift key.' }
     $releasedShift = Invoke-WcuTool -Name 'key_up' -Arguments @{ window_id = $windowId; key = 'shift' }
-    if (@($releasedShift.data.held_keys).Count -ne 0) { throw 'key_up left a tracked key held.' }
+    if (@($releasedShift.data.held_keys).Count -ne 0 -or -not $releasedShift.data.after_screenshot_id -or -not $releasedShift.data.visual_diff.comparable -or -not $releasedShift.data.visual_diff.changed) {
+        throw 'key_up left a tracked key held or omitted changed visual evidence.'
+    }
     $shiftUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key up: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
     if (-not $shiftUpWait.matched) { throw 'The test app did not observe the Shift key release.' }
-    Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'A'; repeat = 2; interval_ms = 10 } | Out-Null
+    $uppercasePress = Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'A'; repeat = 2; interval_ms = 10 }
+    if (-not $uppercasePress.data.after_screenshot_id -or -not $uppercasePress.data.visual_diff.comparable -or -not $uppercasePress.data.visual_diff.changed) {
+        throw 'Window keypress did not return changed post-action visual evidence.'
+    }
     $uppercaseWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = 'AA'; timeout_ms = 1500 }
     if (-not $uppercaseWait.matched) { throw 'Printable uppercase repeat did not apply its implied Shift modifier.' }
+    Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+a' } | Out-Null
+    $windowTypedText = 'Window ' + [char]0x952E + [char]0x76D8
+    $windowTyped = Invoke-WcuTool -Name 'type_text' -Arguments @{ window_id = $windowId; text = $windowTypedText }
+    if ($windowTyped.backend -ne 'sendinput-unicode' -or -not $windowTyped.data.after_screenshot_id -or -not $windowTyped.data.visual_diff.comparable -or -not $windowTyped.data.visual_diff.changed) {
+        throw 'Window Unicode typing did not return changed post-action visual evidence.'
+    }
+    $windowTextWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $windowTypedText; timeout_ms = 1500 }
+    if (-not $windowTextWait.matched) { throw 'Window Unicode typing did not reach the focused control.' }
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
 
     $script:stage = 'desktop-keyboard'
     Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
     $desktopSelect = Invoke-WcuTool -Name 'press_key' -Arguments @{ desktop = $true; key = 'ctrl+a' }
-    if ($desktopSelect.backend -ne 'sendinput-current-foreground' -or -not $desktopSelect.data.desktop -or [long]$desktopSelect.data.foreground_before.id -ne $windowId) {
+    if ($desktopSelect.backend -ne 'sendinput-current-foreground' -or -not $desktopSelect.data.desktop -or [long]$desktopSelect.data.foreground_before.id -ne $windowId -or
+        -not $desktopSelect.data.after_screenshot_id -or -not $desktopSelect.data.visual_diff.comparable -or -not $desktopSelect.data.visual_diff.changed) {
         throw 'Desktop keypress did not preserve and report the current foreground window.'
     }
     $desktopText = 'Desktop ' + [char]0x952E + [char]0x76D8
     $desktopTyped = Invoke-WcuTool -Name 'type_text' -Arguments @{ desktop = $true; text = $desktopText }
-    if ($desktopTyped.backend -ne 'sendinput-unicode-current-foreground' -or -not $desktopTyped.data.desktop -or [long]$desktopTyped.data.foreground_after.id -ne $windowId) {
+    if ($desktopTyped.backend -ne 'sendinput-unicode-current-foreground' -or -not $desktopTyped.data.desktop -or [long]$desktopTyped.data.foreground_after.id -ne $windowId -or
+        -not $desktopTyped.data.after_screenshot_id -or -not $desktopTyped.data.visual_diff.comparable -or -not $desktopTyped.data.visual_diff.changed) {
         throw 'Desktop Unicode typing did not retain the current foreground window.'
     }
     $desktopTextWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $desktopText; timeout_ms = 1500 }
     if (-not $desktopTextWait.matched) { throw 'Desktop Unicode typing did not reach the existing focused control.' }
     $desktopHeld = Invoke-WcuTool -Name 'key_down' -Arguments @{ desktop = $true; key = 'shift' }
-    if (-not $desktopHeld.data.desktop -or @($desktopHeld.data.held_keys) -notcontains 'shift') { throw 'Desktop key_down did not track Shift.' }
+    if (-not $desktopHeld.data.desktop -or @($desktopHeld.data.held_keys) -notcontains 'shift' -or -not $desktopHeld.data.after_screenshot_id -or
+        -not $desktopHeld.data.visual_diff.comparable -or -not $desktopHeld.data.visual_diff.changed) { throw 'Desktop key_down did not track Shift with changed visual evidence.' }
     $desktopShiftDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key down: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
     if (-not $desktopShiftDownWait.matched) { throw 'The focused test app did not observe desktop Shift down.' }
     $desktopReleased = Invoke-WcuTool -Name 'key_up' -Arguments @{ desktop = $true; key = 'shift' }
-    if (-not $desktopReleased.data.desktop -or @($desktopReleased.data.held_keys).Count -ne 0) { throw 'Desktop key_up did not release Shift.' }
+    if (-not $desktopReleased.data.desktop -or @($desktopReleased.data.held_keys).Count -ne 0 -or -not $desktopReleased.data.after_screenshot_id -or
+        -not $desktopReleased.data.visual_diff.comparable -or -not $desktopReleased.data.visual_diff.changed) { throw 'Desktop key_up did not release Shift with changed visual evidence.' }
     $desktopShiftUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key up: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
     if (-not $desktopShiftUpWait.matched) { throw 'The focused test app did not observe desktop Shift up.' }
     $desktopConflictRejected = $false
@@ -969,6 +1064,8 @@ try {
         held_key_roundtrip = $shiftDownWait.matched -and $shiftUpWait.matched
         implied_shift_repeat = $uppercaseWait.matched
         desktop_keyboard_text = $desktopTextWait.matched
+        window_keyboard_visual_verification = $windowTyped.data.visual_diff.changed
+        desktop_keyboard_visual_verification = $desktopTyped.data.visual_diff.changed
         desktop_keyboard_hold = $desktopShiftDownWait.matched -and $desktopShiftUpWait.matched
         desktop_keyboard_conflict_rejected = $desktopConflictRejected
         held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched

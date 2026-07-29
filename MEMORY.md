@@ -226,6 +226,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Long gestures now chain the newest screenshot through `mouse_down` → `move_pointer` → `mouse_up`. Real WGC E2E verifies WinForms MouseEnter/MouseLeave pixel changes, all three coordinate spaces, full desktop plus region/nested-region mapping, old-id rejection, and both window/desktop held-button chains while completing every prior 42-tool gate.
 - Extra capture pressure exposed two pre-existing E2E environment races: local WinForms timers could be collected before their final Tick, and an unrelated open IME candidate could intercept Ctrl+A. The test form now roots active timers through completion and disposes them deterministically; the input selection setup dismisses only transient composition with Escape without changing the user's input method.
 
+### v0.33.0 — keyboard visual verification
+
+- `press_key`, `key_down`, `key_up`, and `type_text` now capture before/after every input and return a fresh `data.after_screenshot_id`, exact changed state, and localized `data.visual_diff` while retaining foreground or held-key state as the primary verification.
+- Window mode compares the selected window; `desktop=true` preserves the current foreground and compares the entire virtual desktop so system-level changes remain visible. Desktop `key_up` keeps its special no-foreground release guarantee to prevent stranded input.
+- The E2E harness now has a `KeyboardVisual` scenario that avoids unrelated prior gates. Its focused 7.7-second real WGC/MCP run proves window and desktop shortcut, Unicode typing, key-down, and key-up visual evidence across all six new paths, with 42-tool protocol identity and clean held state.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

@@ -54,6 +54,8 @@ flowchart LR
 ```powershell
 cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
+# 只验证新增键盘视觉路径（需先有 Release 构建）：
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario KeyboardVisual -RequireWgc
 ```
 
 `test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、状态条件等待、键盘保持/隐式修饰键、原始及原子 Ctrl+V/Ctrl+C 往返（含强制粘贴/复制失败后的恢复）、WGC、OCR 与图像模板定位、快照新鲜度和过期坐标拒绝；任一门禁失败都会返回非零退出码。被重定向的 MCP 诊断会异步排空，预期错误再多也不会填满 stderr 管道而让测试死锁。
@@ -95,6 +97,8 @@ codex plugin marketplace add .
 把同一张新鲜完整或区域截图的 `screenshot_id` 交给 `ocr`/`find_text`，即可识别模型已经看到的精确像素。Broker 会校验年龄与原始窗口几何/桌面拓扑，只为 Windows OCR 适配器落一份短生命周期本地 PNG，识别后删除，并原样返回截图 ID、边界和哈希；`find_text` 的中心点因此可直接用同一帧做截图坐标输入。缓存来源不能混入桌面/窗口选择器；`ocr path` 是独立、权威但不可操作的已有图片模式。
 
 `find_image` 也接受同一缓存截图契约，而且无需落盘：本地匹配器在内存中解码缓存 PNG，按精确或受控尺度搜索，并返回绑定原截图 ID/哈希的中心点与物理边界。完成 `snapshot`、`observe_desktop` 或 `capture_region` 后应优先复用该 ID；只有明确需要新帧时才省略它。
+
+`press_key`、`key_down`、`key_up`、`type_text` 会在每次输入前后抓图，并在保留焦点/持键主验证的同时返回 `data.after_screenshot_id`、`data.visual_changed` 和精确 `data.visual_diff`。窗口模式比较选定窗口；`desktop: true` 直接向当前已有前台焦点发送输入并比较完整虚拟桌面，不会选择或激活目标，因此不能同时传 `window_id`、`title` 或 `app`。目标明确时应优先使用显式窗口模式；只有系统快捷键或已经建立好前台/焦点链时才使用桌面模式。即使 Windows 暂时没有前台窗口，桌面 `key_up` 仍会发送释放以防按键卡死。
 
 仅为传递文本临时借用剪贴板时，优先调用 `paste_text`/`copy_text`：前者替换或追加并等待 UIA Value，后者沿用当前选择或全选、等待真实剪贴板序列变化；未发布或复制结果与可观测 UIA 选区不一致时，最多语义重聚焦重试一次。两者都保存全部直接格式，并在成功或失败后恢复；发布/恢复可容忍最长十秒的外部剪贴板占用竞争。只有任务需要让剪贴板状态跨越多个动作时，才手工组合 `write_clipboard_text` 与 `restore_clipboard`。备份仅存在于当前 Broker 会话；遇到无法安全物化的格式时会在改写前失败。
 

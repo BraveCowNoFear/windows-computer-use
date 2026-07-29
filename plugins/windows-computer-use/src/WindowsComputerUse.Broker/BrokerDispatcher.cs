@@ -1042,6 +1042,7 @@ public sealed class BrokerDispatcher : IDisposable
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
         var target = ResolveKeyboardTarget(args);
+        var beforeCapture = CaptureKeyboardBaseline(target);
         var repeat = Math.Clamp(args.Int("repeat", 1), 1, 100);
         var intervalMs = Math.Clamp(args.Int("interval_ms", 40), 0, 5_000);
         for (var index = 0; index < repeat; index++)
@@ -1050,32 +1051,64 @@ public sealed class BrokerDispatcher : IDisposable
             if (index + 1 < repeat && intervalMs > 0) Thread.Sleep(intervalMs);
         }
         _screenshots.Clear();
-        Thread.Sleep(60);
+        var (after, afterCapture) = ReobserveKeyboardTarget(target);
         if (target.Desktop)
         {
-            var after = _windows.GetForeground();
             return new ActionResult(
                 true,
                 "press_key",
                 "sendinput-current-foreground",
                 new ActionVerification(true, "foreground-input-no-activation", target.Window.Id.ToString(), after?.Id.ToString()),
-                new { repeat, interval_ms = intervalMs, desktop = true, foreground_before = target.Window, foreground_after = after });
+                new
+                {
+                    repeat,
+                    interval_ms = intervalMs,
+                    desktop = true,
+                    foreground_before = target.Window,
+                    foreground_after = after,
+                    after_screenshot_id = afterCapture.Id,
+                    visual_changed = beforeCapture.Sha256 != afterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+                });
         }
-        return new ActionResult(true, "press_key", "sendinput", new ActionVerification(true, "foreground-window", target.Window.Id.ToString(), _windows.Resolve(target.Window.Id).IsForeground.ToString()), new { repeat, interval_ms = intervalMs, desktop = false });
+        return new ActionResult(
+            true,
+            "press_key",
+            "sendinput",
+            new ActionVerification(true, "foreground-window", target.Window.Id.ToString(), after!.IsForeground.ToString()),
+            new
+            {
+                repeat,
+                interval_ms = intervalMs,
+                desktop = false,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private ActionResult KeyDown(JsonElement args)
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
         var target = ResolveKeyboardTarget(args);
+        var beforeCapture = CaptureKeyboardBaseline(target);
         _input.KeyDown(key);
         _screenshots.Clear();
+        var (_, afterCapture) = ReobserveKeyboardTarget(target);
         return new ActionResult(
             true,
             "key_down",
             target.Desktop ? "sendinput-current-foreground-key-state" : "sendinput-key-state",
             new ActionVerification(true, "held-key-state", null, string.Join('+', _input.HeldKeys)),
-            new { held_keys = _input.HeldKeys, window_id = target.Window.Id, desktop = target.Desktop });
+            new
+            {
+                held_keys = _input.HeldKeys,
+                window_id = target.Window.Id,
+                desktop = target.Desktop,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private ActionResult KeyUp(JsonElement args)
@@ -1083,36 +1116,70 @@ public sealed class BrokerDispatcher : IDisposable
         var key = args.String("key") ?? throw new ArgumentException("key is required");
         var desktop = args.Bool("desktop");
         if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
-        var window = desktop ? _windows.GetForeground() : _windows.Activate(_windows.Resolve(args));
+        var targetWindow = desktop ? _windows.GetForeground() : _windows.Activate(_windows.Resolve(args));
+        var baselineSource = desktop ? null : targetWindow;
+        var baselineCapture = RememberCapture(baselineSource, _capture.Capture(baselineSource));
+        var beforeCapture = _screenshots[baselineCapture.Id];
         var before = string.Join('+', _input.HeldKeys);
         _input.KeyUp(key);
         _screenshots.Clear();
+        Thread.Sleep(100);
+        var after = desktop ? _windows.GetForeground() : _windows.Resolve(targetWindow!.Id);
+        var afterSource = desktop ? null : after;
+        var afterCapture = RememberCapture(afterSource, _capture.Capture(afterSource));
         return new ActionResult(
             true,
             "key_up",
             desktop ? "sendinput-current-foreground-key-state" : "sendinput-key-state",
             new ActionVerification(true, "held-key-state", before, string.Join('+', _input.HeldKeys)),
-            new { held_keys = _input.HeldKeys, window_id = window?.Id, desktop });
+            new
+            {
+                held_keys = _input.HeldKeys,
+                window_id = after?.Id ?? targetWindow?.Id,
+                desktop,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private ActionResult TypeText(JsonElement args)
     {
         var text = args.String("text") ?? throw new ArgumentException("text is required");
         var target = ResolveKeyboardTarget(args);
+        var beforeCapture = CaptureKeyboardBaseline(target);
         _input.TypeText(text);
         _screenshots.Clear();
-        Thread.Sleep(80);
+        var (after, afterCapture) = ReobserveKeyboardTarget(target);
         if (target.Desktop)
         {
-            var after = _windows.GetForeground();
             return new ActionResult(
                 true,
                 "type_text",
                 "sendinput-unicode-current-foreground",
                 new ActionVerification(true, "foreground-input-no-activation", target.Window.Id.ToString(), after?.Id.ToString()),
-                new { desktop = true, foreground_before = target.Window, foreground_after = after });
+                new
+                {
+                    desktop = true,
+                    foreground_before = target.Window,
+                    foreground_after = after,
+                    after_screenshot_id = afterCapture.Id,
+                    visual_changed = beforeCapture.Sha256 != afterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+                });
         }
-        return new ActionResult(true, "type_text", "sendinput-unicode", new ActionVerification(true, "foreground-window", target.Window.Id.ToString(), _windows.Resolve(target.Window.Id).IsForeground.ToString()), new { desktop = false });
+        return new ActionResult(
+            true,
+            "type_text",
+            "sendinput-unicode",
+            new ActionVerification(true, "foreground-window", target.Window.Id.ToString(), after!.IsForeground.ToString()),
+            new
+            {
+                desktop = false,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private (WindowDescriptor Window, bool Desktop) ResolveKeyboardTarget(JsonElement args)
@@ -1122,6 +1189,26 @@ public sealed class BrokerDispatcher : IDisposable
         var foreground = _windows.GetForeground()
             ?? throw new InvalidOperationException("Windows has no current foreground window. Select and activate a window before sending desktop keyboard input.");
         return (foreground, true);
+    }
+
+    private ScreenshotRecord CaptureKeyboardBaseline((WindowDescriptor Window, bool Desktop) target)
+    {
+        var source = target.Desktop ? null : target.Window;
+        var capture = RememberCapture(source, _capture.Capture(source));
+        return _screenshots[capture.Id];
+    }
+
+    private (WindowDescriptor? Window, CaptureResult Capture) ReobserveKeyboardTarget((WindowDescriptor Window, bool Desktop) target)
+    {
+        Thread.Sleep(100);
+        if (target.Desktop)
+        {
+            var foreground = _windows.GetForeground();
+            return (foreground, RememberCapture(null, _capture.Capture(null)));
+        }
+
+        var window = _windows.Resolve(target.Window.Id);
+        return (window, RememberCapture(window, _capture.Capture(window)));
     }
 
     private ActionResult Scroll(JsonElement args)

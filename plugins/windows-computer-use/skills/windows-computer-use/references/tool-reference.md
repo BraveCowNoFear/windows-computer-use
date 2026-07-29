@@ -46,10 +46,10 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `click` | Click window-relative, screen, or screenshot coordinates with left, right, middle, X1, or X2 button. |
 | `mouse_down` | Move to a point, hold one of five mouse buttons across later actions, and track it for guaranteed cleanup. |
 | `mouse_up` | Move to a point and release one explicitly held mouse button. |
-| `press_key` | Press/release a `+`-separated chord with implied printable modifiers and optional repeat/interval timing. Covers navigation, F1-F24, left/right modifiers, numpad, browser, media, and volume keys. |
-| `key_down` | Hold one explicit named key across later actions and track it for guaranteed cleanup. |
-| `key_up` | Release one explicitly held key. |
-| `type_text` | Type arbitrary Unicode into the focused control. |
+| `press_key` | Press/release a chord with implied modifiers and repeat timing, then return a fresh window/desktop screenshot and exact visual diff. |
+| `key_down` | Hold one explicit key, verify tracked state, and return a fresh screenshot plus visual diff. |
+| `key_up` | Release one held key, verify tracked state, and return a fresh screenshot plus visual diff. |
+| `type_text` | Type arbitrary Unicode into the focused control and return a fresh screenshot plus visual diff. |
 | `scroll` | Send vertical and horizontal wheel input at a selected point. |
 | `drag` | Perform a self-contained left/right/middle/X1/X2 drag between physical points with configurable duration. |
 | `set_window_state` | Minimize, maximize, or restore one window and verify native state. |
@@ -91,6 +91,6 @@ For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`;
 
 `press_key` interprets printable characters using the active Windows keyboard layout, including implied modifier bits (for example `A` supplies Shift); use `plus` because `+` separates chord tokens. `key_down`/`key_up` require explicit names, so hold `shift` separately before a modified printable key. Mouse buttons use canonical `left`, `right`, `middle`, `x1`, and `x2` names. A self-contained click/drag rejects a button already held by `mouse_down`; continue that gesture with `move_pointer` and finish with `mouse_up`. Any tracked mouse buttons and keys still held at `end_session` or broker disposal are released automatically.
 
-`press_key`, `key_down`, `key_up`, and `type_text` accept `desktop=true` for built-in-computer-use-style current-focus input. The broker records the current foreground HWND but deliberately does not activate it; `window_id`, `title`, or `app` combined with desktop mode is rejected before SendInput. Window mode remains safer when the destination is known. Global `key_up` still sends the release if the desktop temporarily has no foreground window, preventing a held key from becoming stranded.
+`press_key`, `key_down`, `key_up`, and `type_text` capture before/after frames and return `data.after_screenshot_id`, `data.visual_changed`, and exact `data.visual_diff` while keeping focus/held-state verification primary. Window mode compares the selected window. `desktop=true` records but does not activate the foreground HWND, sends current-focus input, and compares the whole virtual desktop; combining it with `window_id`, `title`, or `app` is rejected before SendInput. Global `key_up` still sends the release if the desktop temporarily has no foreground window, preventing a held key from becoming stranded.
 
 `set_window_bounds` takes required `x`, `y`, `width`, and `height` for the outer Win32 window rectangle in physical virtual-desktop pixels. Width/height must be positive; x/y may be negative. A minimized or maximized target is restored first. The default `activate=false` uses `SWP_NOACTIVATE`; `activate=true` performs the same verified foreground activation as `activate_window`. The call succeeds only after `GetWindowRect` exactly equals the requested rectangle.

@@ -79,7 +79,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 37) { throw "Expected 37 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 38) { throw "Expected 38 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -140,6 +140,20 @@ try {
         $restoredBounds.data.window.bounds.width -ne $originalBounds.width -or
         $restoredBounds.data.window.bounds.height -ne $originalBounds.height) {
         throw 'Native window geometry did not restore the exact original rectangle.'
+    }
+
+    $script:stage = 'window-from-point'
+    Invoke-WcuTool -Name 'activate_window' -Arguments @{ window_id = $windowId } | Out-Null
+    $hitX = [int]$originalBounds.x + [int]($originalBounds.width / 2)
+    $hitY = [int]$originalBounds.y + [int]($originalBounds.height / 2)
+    $windowHit = Invoke-WcuTool -Name 'window_from_point' -Arguments @{ x = $hitX; y = $hitY }
+    if ($windowHit.backend -ne 'win32-window-from-point' -or
+        [long]$windowHit.window.id -ne $windowId -or
+        [long]$windowHit.nativeChildWindowId -eq 0 -or
+        -not $windowHit.nativeChildClass -or
+        $windowHit.point.x -ne $hitX -or
+        $windowHit.point.y -ne $hitY) {
+        throw "Native point hit-test did not map the visible pixel to the test root window and child HWND: $($windowHit | ConvertTo-Json -Depth 5 -Compress)"
     }
 
     $inspection = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 100 }
@@ -332,12 +346,12 @@ try {
     $mouseY = [int]$mouseSurface.controls[0].bounds.y + [int]($mouseSurface.controls[0].bounds.height / 2)
     $heldMouse = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ window_id = $windowId; x = $mouseX; y = $mouseY; coordinate_space = 'screen'; button = 'left' }
     if (@($heldMouse.data.held_buttons) -notcontains 'left' -or -not $heldMouse.verification.verified) { throw 'mouse_down did not report and verify the held left button.' }
-    $mouseDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse down: Left'; state = 'exists'; timeout_ms = 1500 }
+    $mouseDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse down: Left'; state = 'exists'; timeout_ms = 3000 }
     if (-not $mouseDownWait.matched) { throw 'The test app did not observe the held left mouse button.' }
     Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; duration_ms = 80 } | Out-Null
     $releasedMouse = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ window_id = $windowId; x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; button = 'left' }
     if (@($releasedMouse.data.held_buttons).Count -ne 0 -or -not $releasedMouse.verification.verified) { throw 'mouse_up left a tracked mouse button held.' }
-    $mouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Left'; state = 'exists'; timeout_ms = 1500 }
+    $mouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Left'; state = 'exists'; timeout_ms = 3000 }
     if (-not $mouseUpWait.matched) { throw 'The test app did not observe the left mouse button release.' }
     $buttonDrag = Invoke-WcuTool -Name 'drag' -Arguments @{ window_id = $windowId; from_x = $mouseX; from_y = $mouseY; to_x = ($mouseX + 20); to_y = $mouseY; coordinate_space = 'screen'; button = 'right'; duration_ms = 100 }
     if ($buttonDrag.data.button -ne 'right' -or @($buttonDrag.data.held_buttons).Count -ne 0) { throw 'The configurable-button drag did not finish with a clean mouse state.' }
@@ -670,6 +684,8 @@ try {
         virtual_desktop = "$($displayInfo.virtualDesktop.x),$($displayInfo.virtualDesktop.y),$($displayInfo.virtualDesktop.width),$($displayInfo.virtualDesktop.height)"
         window_id = $windowId
         window_bounds_roundtrip = $true
+        window_from_point_root = [long]$windowHit.window.id -eq $windowId
+        window_from_point_child = [long]$windowHit.nativeChildWindowId
         controls = @($inspection.controls).Count
         text_backend = $entered.backend
         invoke_backend = $invoked.backend

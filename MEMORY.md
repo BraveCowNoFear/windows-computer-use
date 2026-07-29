@@ -155,6 +155,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Minimized/maximized targets restore before movement. Foreground is preserved by default through `SWP_NOACTIVATE`, while `activate=true` uses the existing verified activation path. Completion requires exact `GetWindowRect` equality and returns the before/after rectangles in action verification.
 - Twenty-eight unit tests gate required geometry fields. Three consecutive real E2E runs move the isolated WinForms window by 20 physical pixels, enlarge it by 40x30, prove foreground state is unchanged, and restore the exact original rectangle before running every prior semantic/visual/input/clipboard gate. True multi-monitor placement is not claimed from the one-monitor development machine.
 
+### v0.22.0 — native point-to-window identity bridge
+
+- Added read-only `window_from_point`, making 38 MCP tools. Physical virtual-desktop x/y resolves through Win32 `WindowFromPoint`; `GetAncestor(GA_ROOT)` returns a normal top-level `WindowDescriptor`, while the actual child HWND/class/optional title remains available for nested native surfaces.
+- The hit test acquires the shared UI lock but never moves the pointer, activates a target, or sends input. It lets a desktop/screenshot-derived point be checked against a stable window id before choosing UIA or screenshot-bound mouse action.
+- Twenty-nine unit tests gate required coordinates and read-only annotations. Three consecutive real E2E runs activate only the isolated fixture, hit-test its visible client center, observe a concrete child HWND, prove the root id equals the fixture's stable id, and then complete every previous gate.
+- A later combined gate showed the existing mouse-event UIA observation could exceed its former 1500 ms harness budget under load even after `mouse_down` had verified held native state. Only the deterministic down/up observation budget was raised to 3000 ms; input behavior and product defaults did not change.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

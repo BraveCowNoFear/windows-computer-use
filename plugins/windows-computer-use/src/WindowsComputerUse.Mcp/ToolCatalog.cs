@@ -10,6 +10,8 @@ public static class ToolCatalog
             Props(("include_untitled", S("boolean", "Include visible titleless top-level windows, default false.")))),
         Tool("display_info", "Return physical virtual-desktop bounds plus every monitor's bounds, work area, primary flag, effective DPI, and scale percentage.", Props()),
         Tool("pointer_position", "Return the current mouse pointer position in physical virtual-desktop screen pixels.", Props()),
+        Tool("window_from_point", "Map one physical virtual-desktop pixel to the current top-level root window plus the actual native child HWND/class/title under that point without activating or clicking.",
+            Props(("x", S("integer", "Physical virtual-desktop X coordinate.")), ("y", S("integer", "Physical virtual-desktop Y coordinate."))), ["x", "y"]),
         Tool("launch_app", "Launch any app, executable, file, URI, or registered shell target in full-control mode.",
             Props(("app", S("string", "Executable path, app id, file, or URI.")), ("arguments", S("string", "Optional command-line arguments.")), ("wait_ms", S("integer", "Wait for initial UI readiness."))), ["app"]),
         Tool("wait_for_window", "Wait for a top-level window or owned transient dialog to appear or disappear without blind sleeps.",
@@ -81,7 +83,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "window_from_point" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

@@ -26,6 +26,8 @@ The broker caches the live `AutomationElement`. If it becomes stale, the broker 
 
 `observe_desktop` acquires the same read-side UI lock once and returns one virtual-screen capture together with the current display topology, visible top-level window descriptors, and physical pointer position. The capture is cached as a normal desktop screenshot record, so its id enters the existing age/topology validation path for screenshot-space input without an extra observation call. It does not activate a window.
 
+`window_from_point` provides the inverse bridge from a physical screen pixel to native identity. Win32 `WindowFromPoint` resolves the actual child HWND at that pixel; `GetAncestor(GA_ROOT)` maps it to a normal `WindowDescriptor` that can feed UIA inspection. The result retains child handle/class/title for owner-drawn or nested native surfaces and performs no pointer movement, activation, or input.
+
 ## Action pipeline
 
 State-changing actions run as:

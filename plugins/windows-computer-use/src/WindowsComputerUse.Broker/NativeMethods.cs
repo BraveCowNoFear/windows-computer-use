@@ -9,6 +9,7 @@ internal static class NativeMethods
     internal const int SwMaximize = 3;
     internal const int SwRestore = 9;
     internal const uint GwOwner = 4;
+    internal const uint GaRoot = 2;
     internal const int SmXVirtualScreen = 76;
     internal const int SmYVirtualScreen = 77;
     internal const int SmCxVirtualScreen = 78;
@@ -60,6 +61,12 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern nint GetWindow(nint hWnd, uint command);
+
+    [DllImport("user32.dll")]
+    internal static extern nint WindowFromPoint(NativePoint point);
+
+    [DllImport("user32.dll")]
+    internal static extern nint GetAncestor(nint hWnd, uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetWindowTextW(nint hWnd, StringBuilder text, int count);

@@ -6,6 +6,8 @@ Every window-scoped tool accepts `window_id`, `title`, or `app`. Prefer the exac
 
 `observe_desktop` is the whole-screen starting observation. It returns one image plus `topology`, `windows`, `pointer`, and `capture` metadata under a single read-side UI lock. The capture id is a standard virtual-desktop screenshot id: pass its image-relative coordinates to pointer/mouse tools with `coordinate_space=screenshot` and no window selector. `include_untitled=true` expands the top-level window list without changing the image.
 
+`window_from_point` takes physical screen `x/y`, calls `WindowFromPoint`, and returns the actual `native_child_window_id`, class, optional title, plus its `GetAncestor(GA_ROOT)` top-level `window`. It is a pure hit test: it does not move the pointer, activate, or click. Convert image-relative desktop coordinates to physical coordinates by adding the desktop capture bounds origin before calling it.
+
 Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, `control_type`, `class_name`, `enabled_only`, and `scan_limit`. Prefer `control_id`; use query fields to discover or recover.
 
 ## Tools

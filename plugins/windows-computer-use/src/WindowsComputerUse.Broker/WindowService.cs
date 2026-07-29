@@ -35,6 +35,24 @@ public sealed class WindowService
         return window;
     }
 
+    public WindowHitTest FromPoint(int x, int y)
+    {
+        var child = NativeMethods.WindowFromPoint(new NativeMethods.NativePoint { X = x, Y = y });
+        if (child == 0) throw new InvalidOperationException($"No native window contains physical screen point {x},{y}.");
+        var root = NativeMethods.GetAncestor(child, NativeMethods.GaRoot);
+        if (root == 0) root = child;
+        var window = DescribeWindow(root, NativeMethods.GetForegroundWindow(), requireVisible: false, includeUntitled: true)
+            ?? throw new InvalidOperationException($"The root window at physical screen point {x},{y} could not be described.");
+        Remember(window);
+        var childTitle = NativeMethods.GetWindowText(child);
+        return new WindowHitTest(
+            new PointerDescriptor(x, y),
+            window,
+            child.ToInt64(),
+            NativeMethods.GetWindowClass(child),
+            string.IsNullOrWhiteSpace(childTitle) ? null : childTitle);
+    }
+
     public WindowDescriptor Resolve(long id = 0, string? title = null, string? app = null)
     {
         if (id != 0)

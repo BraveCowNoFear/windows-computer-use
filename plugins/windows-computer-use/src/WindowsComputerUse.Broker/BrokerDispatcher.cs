@@ -46,6 +46,7 @@ public sealed class BrokerDispatcher : IDisposable
                 },
                 "display_info" => _displays.GetTopology(),
                 "pointer_position" => PointerPosition(),
+                "window_from_point" => WindowFromPoint(args),
                 "launch_app" => Launch(args),
                 "wait_for_window" => await WaitForWindowAsync(args, cancellationToken),
                 "inspect_window" => Inspect(args),
@@ -102,7 +103,7 @@ public sealed class BrokerDispatcher : IDisposable
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "set_window_bounds" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
@@ -124,6 +125,8 @@ public sealed class BrokerDispatcher : IDisposable
         var point = _input.PointerPosition();
         return new { x = point.X, y = point.Y, coordinate_space = "physical-screen-pixels" };
     }
+
+    private WindowHitTest WindowFromPoint(JsonElement args) => _windows.FromPoint(args.Int("x"), args.Int("y"));
 
     private object RecoverInputState(JsonElement args)
     {

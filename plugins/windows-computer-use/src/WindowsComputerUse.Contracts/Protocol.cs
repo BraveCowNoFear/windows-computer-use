@@ -140,6 +140,14 @@ public sealed record DesktopStateSnapshot(
     PointerDescriptor Pointer,
     CaptureResult Capture);
 
+public sealed record WindowHitTest(
+    PointerDescriptor Point,
+    WindowDescriptor Window,
+    long NativeChildWindowId,
+    string NativeChildClass,
+    string? NativeChildTitle,
+    string Backend = "win32-window-from-point");
+
 public sealed record ControlChange(
     string Kind,
     string Id,

@@ -26,6 +26,8 @@ The broker caches the live `AutomationElement`. If it becomes stale, the broker 
 
 `observe_desktop` acquires the same read-side UI lock once and returns one virtual-screen capture together with the current display topology, visible top-level window descriptors, and physical pointer position. The capture is cached as a normal desktop screenshot record, so its id enters the existing age/topology validation path for screenshot-space input without an extra observation call. It does not activate a window.
 
+`wait_for_visual_change` accepts one cached screenshot id and repeatedly captures its exact original window or virtual desktop. It rejects an expired source, recreated/moved/resized window, or changed display topology before comparing exact PNG SHA-256 content. It never activates a source and returns the last capture as a newly cached actionable screenshot on either match or timeout. Exact image change is intentionally broad, so semantic `wait_for_ui` remains preferred when the desired condition is exposed; animations, carets, clocks, and unrelated desktop pixels are valid visual changes.
+
 `window_from_point` provides the inverse bridge from a physical screen pixel to native identity. Win32 `WindowFromPoint` resolves the actual child HWND at that pixel; `GetAncestor(GA_ROOT)` maps it to a normal `WindowDescriptor` that can feed UIA inspection. The result retains child handle/class/title for owner-drawn or nested native surfaces and performs no pointer movement, activation, or input.
 
 ## Action pipeline
@@ -37,7 +39,7 @@ State-changing actions run as:
 3. Restore and activate the target window.
 4. Resolve the semantic control or physical point. Coordinate actions may bind to a screenshot id; semantic/input mutations invalidate older screenshots, and moved, resized, unknown, or expired observations are rejected.
 5. Use the requested UIA3 Pattern first. Primary `invoke` may fall back to a center click; `perform_secondary_action` stays semantic and fails explicitly when its required pattern is unavailable.
-6. Wait a short settling interval or the explicit `wait_for_ui` condition.
+6. Wait for an explicit `wait_for_ui`, `wait_for_window`, or pixel-only `wait_for_visual_change` condition.
 7. Re-observe the control or window and return verification metadata. Pixel actions capture a post-action frame and return its id/hash for visual-difference inspection.
 8. Release the shared lock.
 

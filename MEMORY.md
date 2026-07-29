@@ -162,6 +162,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Twenty-nine unit tests gate required coordinates and read-only annotations. Three consecutive real E2E runs activate only the isolated fixture, hit-test its visible client center, observe a concrete child HWND, prove the root id equals the fixture's stable id, and then complete every previous gate.
 - A later combined gate showed the existing mouse-event UIA observation could exceed its former 1500 ms harness budget under load even after `mouse_down` had verified held native state. Only the deterministic down/up observation budget was raised to 3000 ms; input behavior and product defaults did not change.
 
+### v0.23.0 — exact visual-change condition wait
+
+- Added read-only `wait_for_visual_change`, making 39 MCP tools. A fresh cached screenshot id identifies its own original window or virtual desktop; callers do not repeat or guess a selector.
+- The Broker validates source age at entry and window identity/bounds or virtual-desktop topology on every poll. It compares exact PNG SHA-256 content, never activates the source, rejects a late match after the requested deadline, and returns the final capture as a new actionable screenshot on both match and timeout.
+- Exact image change is deliberately broad: animations, blinking carets, clocks, and unrelated desktop pixels can satisfy it. The skill and references therefore retain `wait_for_ui`/`wait_for_window` as the preferred conditions whenever semantic state exists.
+- Thirty unit tests gate the required screenshot contract and read-only annotation. Real WGC E2E drives a two-phase delayed WinForms toggle, first proves the UIA `toggle_on` transition, then captures a baseline and waits for the second pixel transition; the returned PNG has a new id/hash bound to the baseline and UIA independently verifies the final `toggle_off` state.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

@@ -17,6 +17,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `list_windows` | Return visible top-level windows, process identity, bounds, class, owner/root-owner links, and state. |
 | `display_info` | Return physical virtual-desktop and per-monitor bounds, work areas, effective DPI, primary flag, and scale. |
 | `pointer_position` | Return the current pointer position in physical virtual-desktop screen pixels. |
+| `window_from_point` | Map a physical point to its actual child HWND/class/title and stable top-level root window without input. |
 | `launch_app` | Launch an executable, registered app, file, or URI. |
 | `wait_for_window` | Wait for a top-level/owned window to exist or disappear by title, app, class, process, or owner ids. |
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
@@ -28,7 +29,9 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `paste_text` | Preserve all direct clipboard formats, focus a semantic target, replace or append through real Ctrl+V, verify UIA Value when exposed, and restore on success or failure. |
 | `copy_text` | Preserve all direct clipboard formats, focus a semantic target, copy the current selection or select-all through real Ctrl+C, return Unicode text, and restore on success or failure. |
 | `wait_for_ui` | Wait for existence/visibility/focus, Value equality/containment, selected/unselected, toggle on/off/indeterminate, expanded/collapsed, or read-only/editable state. |
+| `wait_for_visual_change` | Re-capture the exact source of a fresh screenshot until its PNG hash changes, returning the latest actionable PNG on match or timeout. |
 | `capture` | Return PNG image content plus an actionable screenshot id for a window or virtual desktop, and optionally save it. |
+| `observe_desktop` | Atomically return one virtual-desktop PNG plus topology, visible windows, pointer position, and actionable screenshot metadata. |
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize an existing image or fresh window/desktop capture with Windows.Media.Ocr; fresh captures are screenshot-bound. |
 | `find_text` | Fresh-capture a window or desktop and return matching OCR line/word bounds, centers, and actionable screenshot id. |
@@ -47,6 +50,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `scroll` | Send vertical and horizontal wheel input at a selected point. |
 | `drag` | Perform a self-contained left/right/middle/X1/X2 drag between physical points with configurable duration. |
 | `set_window_state` | Minimize, maximize, or restore one window and verify native state. |
+| `set_window_bounds` | Move/resize an exact window to a verified physical virtual-desktop rectangle, preserving foreground by default. |
 | `activate_window` | Restore and foreground one exact window. |
 | `end_session` | Release tracked mouse buttons and keys, discard unused clipboard backup ids, clear element caches, and end the logical control session. |
 
@@ -69,6 +73,8 @@ An exact `window_id` is resolved directly as an HWND even when that window is te
 `copy_text` also requires released tracked keys. With `selection=current` it preserves the target's selection; `selection=all` sends `Ctrl+A`. It seeds a unique temporary marker, sends `Ctrl+C`, waits for `GetClipboardSequenceNumber` to change, reads Unicode text, compares it with UIA selected text when exposed, then restores the original formats before returning. A copy that publishes no text or never changes the clipboard fails and still runs restoration. Restore verification requires the original content, format set, and sequence to remain stable for 150 ms so delayed clipboard rendering cannot escape after the tool returns.
 
 For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be cancelled inside its native process, but the MCP transport deadline can replace that process; an observation completed after `timeout_ms` is never reported as a successful match.
+
+`wait_for_visual_change` requires a cached `screenshot_id` and automatically reuses its window or virtual-desktop source; do not add a selector. The source must be within `max_age_ms` when the wait begins. Every poll verifies that the window id/bounds or virtual-desktop topology still matches, then compares the exact encoded PNG SHA-256. A match completed after `timeout_ms` is reported as `matched=false`; both outcomes include a fresh actionable `capture`. Prefer semantic waits when possible because any animation, caret, clock, or unrelated desktop pixel can change the exact hash.
 
 `press_key` interprets printable characters using the active Windows keyboard layout, including implied modifier bits (for example `A` supplies Shift); use `plus` because `+` separates chord tokens. `key_down`/`key_up` require explicit names, so hold `shift` separately before a modified printable key. Mouse buttons use canonical `left`, `right`, `middle`, `x1`, and `x2` names. A self-contained click/drag rejects a button already held by `mouse_down`; continue that gesture with `move_pointer` and finish with `mouse_up`. Any tracked mouse buttons and keys still held at `end_session` or broker disposal are released automatically.
 

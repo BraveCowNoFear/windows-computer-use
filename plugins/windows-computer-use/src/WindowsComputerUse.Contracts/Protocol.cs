@@ -140,6 +140,13 @@ public sealed record DesktopStateSnapshot(
     PointerDescriptor Pointer,
     CaptureResult Capture);
 
+public sealed record VisualChangeResult(
+    bool Matched,
+    long ElapsedMs,
+    string PreviousScreenshotId,
+    string PreviousSha256,
+    CaptureResult Capture);
+
 public sealed record WindowHitTest(
     PointerDescriptor Point,
     WindowDescriptor Window,

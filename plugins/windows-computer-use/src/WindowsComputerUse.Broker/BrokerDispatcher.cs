@@ -58,6 +58,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "paste_text" => PasteText(args),
                 "copy_text" => CopyText(args),
                 "wait_for_ui" => Wait(args),
+                "wait_for_visual_change" => await WaitForVisualChangeAsync(args, cancellationToken),
                 "capture" => Capture(args),
                 "observe_desktop" => ObserveDesktop(args),
                 "snapshot" => Snapshot(args),
@@ -103,7 +104,7 @@ public sealed class BrokerDispatcher : IDisposable
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "wait_for_visual_change" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "set_window_bounds" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
@@ -427,6 +428,45 @@ public sealed class BrokerDispatcher : IDisposable
     private object Wait(JsonElement args)
     {
         return _uia.WaitFor(() => _windows.Resolve(args), args, args.String("state") ?? "exists", args.Int("timeout_ms", 10_000), args.Int("poll_ms", 100));
+    }
+
+    private async Task<VisualChangeResult> WaitForVisualChangeAsync(JsonElement args, CancellationToken cancellationToken)
+    {
+        var screenshotId = args.String("screenshot_id")
+            ?? throw new ArgumentException("screenshot_id is required");
+        if (!_screenshots.TryGetValue(screenshotId, out var previous))
+            throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or snapshot the same source again before waiting for a visual change.");
+        ValidateScreenshotAge(args, previous);
+
+        var timeout = Math.Clamp(args.Int("timeout_ms", 10_000), 100, 120_000);
+        var poll = Math.Clamp(args.Int("poll_ms", 100), 25, 2_000);
+        var started = Environment.TickCount64;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            WindowDescriptor? window = null;
+            if (previous.WindowId is long windowId)
+            {
+                window = _windows.Resolve(windowId);
+                if (window.Id != windowId)
+                    throw new InvalidOperationException("The source window was recreated after the screenshot. Capture or snapshot it again before waiting for a visual change.");
+                if (window.Bounds != previous.WindowBounds)
+                    throw new InvalidOperationException("The source window moved or resized after the screenshot. Capture or snapshot it again before waiting for a visual change.");
+            }
+            else if (previous.CaptureBounds != VirtualDesktopBounds())
+            {
+                throw new InvalidOperationException("The virtual desktop topology changed after the screenshot. Capture it again before waiting for a visual change.");
+            }
+
+            var capture = _capture.Capture(window);
+            var elapsed = Environment.TickCount64 - started;
+            if (!string.Equals(capture.Sha256, previous.Sha256, StringComparison.OrdinalIgnoreCase) && elapsed <= timeout)
+                return new VisualChangeResult(true, elapsed, screenshotId, previous.Sha256, RememberCapture(window, capture));
+            if (elapsed >= timeout)
+                return new VisualChangeResult(false, elapsed, screenshotId, previous.Sha256, RememberCapture(window, capture));
+
+            await Task.Delay((int)Math.Min(poll, timeout - elapsed), cancellationToken);
+        }
     }
 
     private CaptureResult Capture(JsonElement args)

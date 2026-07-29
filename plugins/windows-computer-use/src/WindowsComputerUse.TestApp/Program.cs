@@ -195,12 +195,21 @@ internal sealed class TestForm : Form
         recreateWindow.Click += (_, _) => RecreateHandle();
         delayedToggle.Click += (_, _) =>
         {
-            var timer = new System.Windows.Forms.Timer { Interval = 350 };
+            var phase = 0;
+            var timer = new System.Windows.Forms.Timer { Interval = 700 };
             timer.Tick += (_, _) =>
             {
-                timer.Stop();
-                featureToggle.Checked = true;
-                timer.Dispose();
+                if (phase++ == 0)
+                {
+                    featureToggle.Checked = true;
+                    timer.Interval = 1200;
+                }
+                else
+                {
+                    timer.Stop();
+                    featureToggle.Checked = false;
+                    timer.Dispose();
+                }
             };
             timer.Start();
         };

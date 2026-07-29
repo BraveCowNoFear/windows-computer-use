@@ -47,7 +47,7 @@ function Invoke-WcuTool {
     param([string]$Name, [hashtable]$Arguments = @{})
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
     if ($result.isError) { throw "Stage $script:stage; tool $Name failed: $($result.content[0].text)" }
-    if ($Name -in @('capture', 'snapshot', 'observe_desktop')) { return $result }
+    if ($Name -in @('capture', 'snapshot', 'observe_desktop', 'wait_for_visual_change')) { return $result }
     return ($result.content[0].text | ConvertFrom-Json)
 }
 
@@ -79,7 +79,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 38) { throw "Expected 38 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 39) { throw "Expected 39 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -381,8 +381,32 @@ try {
     $delayedToggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'DelayedToggleButton'; limit = 2 }
     if ($delayedToggle.count -ne 1) { throw 'Could not resolve the delayed state-transition control.' }
     Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $delayedToggle.controls[0].id } | Out-Null
-    $toggleWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_on'; timeout_ms = 1500; poll_ms = 50 }
-    if (-not $toggleWait.matched -or $toggleWait.elapsed_ms -lt 150 -or $toggleWait.elapsed_ms -gt 1500) { throw 'Toggle-state condition wait did not poll through the delayed UI transition within its deadline.' }
+    $toggleWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_on'; timeout_ms = 2000; poll_ms = 50 }
+    if (-not $toggleWait.matched -or $toggleWait.elapsed_ms -lt 300 -or $toggleWait.elapsed_ms -gt 2000) { throw 'Toggle-state condition wait did not poll through the delayed UI transition within its deadline.' }
+    $visualBaseline = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $visualBaselineMeta = $visualBaseline.content[0].text | ConvertFrom-Json
+    $visualChange = Invoke-WcuTool -Name 'wait_for_visual_change' -Arguments @{ screenshot_id = $visualBaselineMeta.id; timeout_ms = 2500; poll_ms = 50 }
+    if (@($visualChange.content).Count -ne 2 -or $visualChange.content[1].type -ne 'image' -or $visualChange.content[1].mimeType -ne 'image/png' -or -not $visualChange.content[1].data) {
+        throw 'Visual-change wait did not return text metadata plus a fresh PNG image.'
+    }
+    $visualChangeMeta = $visualChange.content[0].text | ConvertFrom-Json
+    if (-not $visualChangeMeta.matched -or $visualChangeMeta.elapsedMs -lt 250 -or $visualChangeMeta.elapsedMs -gt 2500) {
+        throw "Visual-change wait did not observe the delayed exact-PNG transition within its deadline: $($visualChangeMeta | ConvertTo-Json -Depth 5 -Compress)"
+    }
+    if ($visualChangeMeta.previousScreenshotId -ne $visualBaselineMeta.id -or $visualChangeMeta.previousSha256 -ne $visualBaselineMeta.sha256 -or $visualChangeMeta.capture.id -eq $visualBaselineMeta.id -or $visualChangeMeta.capture.sha256 -eq $visualBaselineMeta.sha256) {
+        throw 'Visual-change wait did not bind its result to the source screenshot and a distinct content hash.'
+    }
+    $visualPointer = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $visualChangeMeta.capture.id }
+    if (-not $visualPointer.ok) { throw 'The visual-change result screenshot was not cached as actionable.' }
+    $visualStaleRejected = $false
+    try {
+        Invoke-WcuTool -Name 'wait_for_visual_change' -Arguments @{ screenshot_id = $visualBaselineMeta.id; max_age_ms = 100; timeout_ms = 100; poll_ms = 25 } | Out-Null
+    } catch {
+        $visualStaleRejected = $_.Exception.Message -like '*screenshot_id is stale*'
+    }
+    if (-not $visualStaleRejected) { throw 'Visual-change wait accepted a source older than max_age_ms.' }
+    $toggleOffWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_off'; timeout_ms = 1000; poll_ms = 50 }
+    if (-not $toggleOffWait.matched) { throw 'Visual-change result did not correspond to the expected semantic toggle transition.' }
 
     $script:stage = 'selection-state'
     $beta = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; name = 'Beta'; control_type = 'ListItem'; limit = 2 }
@@ -724,6 +748,11 @@ try {
         value_condition_wait = $valueWait.matched
         value_condition_wait_ms = $valueWait.elapsed_ms
         delayed_toggle_wait_ms = $toggleWait.elapsed_ms
+        visual_change_wait = $visualChangeMeta.matched
+        visual_change_wait_ms = $visualChangeMeta.elapsedMs
+        visual_change_screenshot = $visualChangeMeta.capture.id
+        visual_change_screenshot_action = $visualPointer.ok
+        visual_change_stale_rejected = $visualStaleRejected
         selection_condition_wait = $selectionWait.matched
         selection_condition_wait_ms = $selectionWait.elapsed_ms
         image_template_grounding = $imageTarget.count

@@ -34,6 +34,8 @@ public static class ToolCatalog
             QueryProps(("control_id", S("string", "Stable control id.")), ("selection", Enum("current", "all")), ("timeout_ms", S("integer", "Clipboard sequence-change timeout from 100 to 10000 ms, default 2000.")))),
         Tool("wait_for_ui", "Poll UIA until a control matches an existence, visibility, focus, Value, selection, toggle, expand/collapse, or read-only state without blind sleeps.",
             QueryProps(("control_id", S("string", "Stable control id.")), ("state", Enum("exists", "absent", "visible", "hidden", "enabled", "focused", "value_equals", "value_contains", "selected", "unselected", "toggle_on", "toggle_off", "toggle_indeterminate", "expanded", "collapsed", "readonly", "editable")), ("expected_value", S("string", "Required for value_equals/value_contains.")), ("case_sensitive", S("boolean", "Use ordinal case-sensitive Value comparison.")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
+        Tool("wait_for_visual_change", "Poll the exact PNG content of the same window or virtual desktop until it differs from a fresh cached screenshot, then return a new actionable PNG instead of relying on a blind sleep.",
+            Props(("screenshot_id", S("string", "Fresh screenshot id from capture, snapshot, or observe_desktop; its original source is reused automatically.")), ("timeout_ms", S("integer", "Timeout from 100 to 120000 ms, default 10000.")), ("poll_ms", S("integer", "Capture polling interval from 25 to 2000 ms, default 100.")), ("max_age_ms", S("integer", "Maximum age of the source screenshot, default 15000 ms."))), ["screenshot_id"]),
         Tool("capture", "Capture a window through Windows Graphics Capture with fallback, or capture the virtual desktop, and return PNG content plus an actionable screenshot id.",
             WindowProps(("desktop", S("boolean", "Capture the full virtual desktop instead of one window.")), ("path", S("string", "Optional absolute output path.")))),
         Tool("observe_desktop", "Return one actionable virtual-desktop PNG together with display topology, visible top-level windows, and the current pointer position without activating a window.",
@@ -83,7 +85,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "window_from_point" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "window_from_point" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "wait_for_visual_change" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

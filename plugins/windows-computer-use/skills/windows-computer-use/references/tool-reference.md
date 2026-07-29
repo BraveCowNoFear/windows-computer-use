@@ -37,7 +37,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize exact cached screenshot pixels, an existing image, or a fresh window/desktop capture with Windows.Media.Ocr. |
 | `find_text` | Search exact cached screenshot pixels or a fresh window/desktop frame and return actionable OCR bounds/centers. |
-| `find_image` | Fresh-capture a window or desktop and locate a local PNG/JPEG template at exact scale by default or across a bounded scale range, returning score, matched scale, screenshot/screen bounds, center, and screenshot id. |
+| `find_image` | Search exact cached screenshot pixels or a fresh frame for a local template, returning same-frame scale, bounds, center, and id. |
 | `read_clipboard_text` | Read current Unicode text, length, raw/normalized SHA-256 digests, and direct clipboard format names. |
 | `write_clipboard_text` | Replace all current formats with Unicode text and optionally return a session-local backup id after materializing every direct format. |
 | `restore_clipboard` | Restore and verify the formats/text captured by one backup id, then consume that id. |
@@ -70,7 +70,7 @@ Visual tools reject minimized windows because WGC/PrintWindow output is not depe
 
 An exact `window_id` is resolved directly as an HWND even when that window is temporarily hidden or untitled. If an app destroys and recreates the HWND, the cached id follows it only when the same process id, native class, and non-empty title identify one unique replacement. Otherwise the broker returns an explicit stale-id error; call `list_windows`/`wait_for_window` and select the replacement rather than guessing.
 
-`find_image` defaults to `scale_min=scale_max=1.0`. For known DPI or zoom variation, scales are bounded to 0.25-4.0 with a 0.01-1.0 step and at most 25 evaluated sizes; 1.0 is included when it lies inside the range. Results are ranked and overlap-suppressed across scales. Use a narrow range because runtime grows with every evaluated size, and use `snapshot`/model vision for novel or rotated targets.
+`find_image` accepts the same fresh cached `screenshot_id` contract, including cropped/nested regions, and rejects selectors while an id is present. It validates `max_age_ms` plus original geometry/topology and searches the exact cached PNG in memory, returning the unchanged id/hash/bounds. Without an id it fresh-captures the selected window/desktop. Matching defaults to `scale_min=scale_max=1.0`; for known DPI or zoom variation, scales are bounded to 0.25-4.0 with a 0.01-1.0 step and at most 25 evaluated sizes. Results are ranked and overlap-suppressed across scales. Use a narrow range because runtime grows with every evaluated size, and use `snapshot`/model vision for novel or rotated targets.
 
 `write_clipboard_text` defaults to `preserve_previous=true`. It materializes every direct clipboard format before mutation and fails without changing the clipboard if one cannot be backed up safely. Keep the returned `backup_id` and call `restore_clipboard` in cleanup after the paste; the restore tolerates Windows line-ending normalization, verifies the original format set and normalized text digest, and consumes the id. Backup ids belong to the current broker process and are discarded by `end_session`/shutdown without automatically changing the current clipboard. Use `preserve_previous=false` only for an intentional persistent clipboard update.
 

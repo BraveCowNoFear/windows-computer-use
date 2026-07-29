@@ -225,6 +225,8 @@ public sealed class ProtocolTests
         var schema = JsonSerializer.SerializeToElement(findImage.InputSchema, ProtocolJson.Options);
         var properties = schema.GetProperty("properties");
         Assert.True(properties.TryGetProperty("desktop", out _));
+        Assert.True(properties.TryGetProperty("screenshot_id", out _));
+        Assert.True(properties.TryGetProperty("max_age_ms", out _));
         Assert.True(properties.TryGetProperty("scale_min", out _));
         Assert.True(properties.TryGetProperty("scale_max", out _));
         Assert.True(properties.TryGetProperty("scale_step", out _));

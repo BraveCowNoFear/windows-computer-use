@@ -196,6 +196,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Exact recognition materializes only a temporary local PNG for the Windows Runtime adapter and deletes it on success/failure. The returned OCR metadata retains the original screenshot id/hash/bounds, while `find_text` line/word centers and physical bounds remain directly actionable against the exact recognized pixels.
 - Thirty-three unit tests gate `screenshot_id` and `max_age_ms` for both tools. Real WGC E2E derives a padded button region from an atomic snapshot, proves exact region OCR and exact `find_text` share its id/hash/bounds, rejects a conflicting selector, clicks through the region-relative center, then uses exact cached full-desktop OCR to complete the whole-screen action path.
 
+### v0.28.0 — exact cached screenshot template matching
+
+- `find_image` now accepts a fresh `screenshot_id` for full, cropped, or nested-cropped PNGs. It reuses the common age and original window-geometry/desktop-topology validation, rejects mixed selectors, and passes the cached `CaptureResult` directly to the in-process matcher without a second capture or temporary source file.
+- Exact and bounded multi-scale matches retain the original screenshot id/hash/cropped physical bounds plus image/screen match bounds and center, so a result remains directly actionable against precisely the model-observed frame.
+- Thirty-three unit tests gate the added schema. Real WGC E2E extracts a button template and padded search region from one saved window frame, rejects a conflicting selector, proves exact and 1.15-1.35 multi-scale searches return the region id/hash/bounds, clicks through the same region id, and completes all prior gates.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

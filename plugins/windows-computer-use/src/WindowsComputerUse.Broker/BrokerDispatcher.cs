@@ -693,9 +693,17 @@ public sealed class BrokerDispatcher : IDisposable
     private object FindImage(JsonElement args)
     {
         var templatePath = args.String("template_path") ?? throw new ArgumentException("template_path is required");
-        if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
-        var window = args.Bool("desktop") ? null : _windows.Resolve(args);
-        var capture = RememberCapture(window, _capture.Capture(window));
+        CaptureResult capture;
+        if (!string.IsNullOrWhiteSpace(args.String("screenshot_id")))
+        {
+            capture = ResolveCachedScreenshot(args, "image matching", out _).Capture;
+        }
+        else
+        {
+            if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+            var window = args.Bool("desktop") ? null : _windows.Resolve(args);
+            capture = RememberCapture(window, _capture.Capture(window));
+        }
         return _imageMatcher.Find(
             templatePath,
             capture,

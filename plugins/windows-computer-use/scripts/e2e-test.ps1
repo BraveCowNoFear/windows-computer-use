@@ -706,20 +706,35 @@ try {
         if ($null -ne $templateBitmap) { $templateBitmap.Dispose() }
         if ($null -ne $sourceBitmap) { $sourceBitmap.Dispose() }
     }
-    $imageTarget = Invoke-WcuTool -Name 'find_image' -Arguments @{ window_id = $windowId; template_path = $templatePath; threshold = 0.97; max_results = 5 }
+    $imageRegionX = [Math]::Max(0, $cropX - 40)
+    $imageRegionY = [Math]::Max(0, $cropY - 20)
+    $imageRegionRight = [Math]::Min([int]$visualMeta.width, $cropX + $cropWidth + 40)
+    $imageRegionBottom = [Math]::Min([int]$visualMeta.height, $cropY + $cropHeight + 20)
+    $imageRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $visualMeta.id; x = $imageRegionX; y = $imageRegionY; width = ($imageRegionRight - $imageRegionX); height = ($imageRegionBottom - $imageRegionY) }
+    $imageRegionMeta = $imageRegion.content[0].text | ConvertFrom-Json
+    $imageSelectorConflictRejected = $false
+    try {
+        Invoke-WcuTool -Name 'find_image' -Arguments @{ screenshot_id = $imageRegionMeta.id; window_id = $windowId; template_path = $templatePath; threshold = 0.97; max_results = 5 } | Out-Null
+    } catch {
+        $imageSelectorConflictRejected = $_.Exception.Message -like '*screenshot_id cannot be combined*'
+    }
+    if (-not $imageSelectorConflictRejected) { throw 'Exact cached image matching accepted a conflicting window selector.' }
+    $imageTarget = Invoke-WcuTool -Name 'find_image' -Arguments @{ screenshot_id = $imageRegionMeta.id; template_path = $templatePath; threshold = 0.97; max_results = 5 }
     $imageMatches = @($imageTarget.matches | Where-Object {
         $_.screen_bounds.x -lt $currentButton.controls[0].bounds.right -and $_.screen_bounds.right -gt $currentButton.controls[0].bounds.x -and
         $_.screen_bounds.y -lt $currentButton.controls[0].bounds.bottom -and $_.screen_bounds.bottom -gt $currentButton.controls[0].bounds.y
     })
-    if ($imageTarget.count -lt 1 -or $imageMatches.Count -lt 1 -or $imageMatches[0].score -lt 0.97 -or $imageTarget.elapsed_ms -gt 2000 -or -not $imageTarget.screenshot_id) {
+    if ($imageTarget.count -lt 1 -or $imageMatches.Count -lt 1 -or $imageMatches[0].score -lt 0.97 -or $imageTarget.elapsed_ms -gt 2000 -or
+        $imageTarget.screenshot_id -ne $imageRegionMeta.id -or $imageTarget.sha256 -ne $imageRegionMeta.sha256 -or
+        $imageTarget.capture_bounds.x -ne $imageRegionMeta.bounds.x -or $imageTarget.capture_bounds.y -ne $imageRegionMeta.bounds.y) {
         throw "Local image template grounding did not resolve the button: $($imageTarget | ConvertTo-Json -Depth 8 -Compress)"
     }
-    $scaledImageTarget = Invoke-WcuTool -Name 'find_image' -Arguments @{ window_id = $windowId; template_path = $scaledTemplatePath; threshold = 0.90; max_results = 5; scale_min = 1.15; scale_max = 1.35; scale_step = 0.025 }
+    $scaledImageTarget = Invoke-WcuTool -Name 'find_image' -Arguments @{ screenshot_id = $imageRegionMeta.id; template_path = $scaledTemplatePath; threshold = 0.90; max_results = 5; scale_min = 1.15; scale_max = 1.35; scale_step = 0.025 }
     $scaledImageMatches = @($scaledImageTarget.matches | Where-Object {
         $_.screen_bounds.x -lt $currentButton.controls[0].bounds.right -and $_.screen_bounds.right -gt $currentButton.controls[0].bounds.x -and
         $_.screen_bounds.y -lt $currentButton.controls[0].bounds.bottom -and $_.screen_bounds.bottom -gt $currentButton.controls[0].bounds.y
     })
-    if ($scaledImageTarget.backend -ne 'local-template-multiscale-sampled-sad' -or $scaledImageTarget.count -lt 1 -or $scaledImageMatches.Count -lt 1 -or $scaledImageMatches[0].score -lt 0.90 -or $scaledImageMatches[0].scale -lt 1.15 -or $scaledImageMatches[0].scale -gt 1.35 -or $scaledImageTarget.elapsed_ms -gt 5000) {
+    if ($scaledImageTarget.backend -ne 'local-template-multiscale-sampled-sad' -or $scaledImageTarget.count -lt 1 -or $scaledImageMatches.Count -lt 1 -or $scaledImageMatches[0].score -lt 0.90 -or $scaledImageMatches[0].scale -lt 1.15 -or $scaledImageMatches[0].scale -gt 1.35 -or $scaledImageTarget.elapsed_ms -gt 5000 -or $scaledImageTarget.screenshot_id -ne $imageRegionMeta.id) {
         throw "Multi-scale image grounding did not recover the resized real-window template: $($scaledImageTarget | ConvertTo-Json -Depth 8 -Compress)"
     }
     $imageClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = [int]$scaledImageMatches[0].center.x; y = [int]$scaledImageMatches[0].center.y; coordinate_space = 'screenshot'; screenshot_id = $scaledImageTarget.screenshot_id }
@@ -866,6 +881,8 @@ try {
         selection_condition_wait = $selectionWait.matched
         selection_condition_wait_ms = $selectionWait.elapsed_ms
         image_template_grounding = $imageTarget.count
+        exact_cached_image_match = $imageTarget.screenshot_id -eq $imageRegionMeta.id
+        image_selector_conflict_rejected = $imageSelectorConflictRejected
         image_match_score = $imageMatches[0].score
         image_match_ms = $imageTarget.elapsed_ms
         multiscale_image_match = $scaledImageMatches[0].scale

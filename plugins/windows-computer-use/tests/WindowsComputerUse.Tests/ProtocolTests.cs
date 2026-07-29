@@ -55,12 +55,26 @@ public sealed class ProtocolTests
         var findImage = Assert.Single(ToolCatalog.All, tool => tool.Name == "find_image");
         var schema = JsonSerializer.SerializeToElement(findImage.InputSchema, ProtocolJson.Options);
         var properties = schema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("desktop", out _));
         Assert.True(properties.TryGetProperty("scale_min", out _));
         Assert.True(properties.TryGetProperty("scale_max", out _));
         Assert.True(properties.TryGetProperty("scale_step", out _));
 
         var annotations = JsonSerializer.SerializeToElement(findImage.Annotations, ProtocolJson.Options);
         Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
+    [Fact]
+    public void DesktopVisualTools_AdvertiseFullDesktopGrounding()
+    {
+        foreach (var toolName in new[] { "capture", "ocr", "find_text", "find_image" })
+        {
+            var tool = Assert.Single(ToolCatalog.All, candidate => candidate.Name == toolName);
+            var schema = JsonSerializer.SerializeToElement(tool.InputSchema, ProtocolJson.Options);
+            Assert.True(schema.GetProperty("properties").TryGetProperty("desktop", out _), $"{toolName} must expose desktop=true.");
+            var annotations = JsonSerializer.SerializeToElement(tool.Annotations, ProtocolJson.Options);
+            Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+        }
     }
 
     [Fact]

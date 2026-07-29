@@ -22,11 +22,11 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `perform_secondary_action` | Explicitly focus/raise, select, add/remove selection, toggle, expand/collapse, or UIA-scroll one semantic control. |
 | `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput. |
 | `wait_for_ui` | Wait for existence/visibility/focus, Value equality/containment, selected/unselected, toggle on/off/indeterminate, expanded/collapsed, or read-only/editable state. |
-| `capture` | Return PNG image content for a window or virtual desktop and optionally save it. |
+| `capture` | Return PNG image content plus an actionable screenshot id for a window or virtual desktop, and optionally save it. |
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
-| `ocr` | Recognize an existing image or fresh capture with Windows.Media.Ocr. |
-| `find_text` | Fresh-capture a window and return matching OCR line/word bounds, centers, and screenshot id. |
-| `find_image` | Fresh-capture a window and locate a local PNG/JPEG template at exact scale by default or across a bounded scale range, returning score, matched scale, screenshot/screen bounds, center, and screenshot id. |
+| `ocr` | Recognize an existing image or fresh window/desktop capture with Windows.Media.Ocr; fresh captures are screenshot-bound. |
+| `find_text` | Fresh-capture a window or desktop and return matching OCR line/word bounds, centers, and actionable screenshot id. |
+| `find_image` | Fresh-capture a window or desktop and locate a local PNG/JPEG template at exact scale by default or across a bounded scale range, returning score, matched scale, screenshot/screen bounds, center, and screenshot id. |
 | `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
 | `click` | Click window-relative, screen, or screenshot coordinates with left, right, middle, X1, or X2 button. |
 | `mouse_down` | Move to a point, hold one of five mouse buttons across later actions, and track it for guaranteed cleanup. |
@@ -43,7 +43,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 
 Controls include `parentId`, `depth`, `childCount`, `value`, `isReadOnly`, `isSelected`, `toggleState`, `expandCollapseState`, and horizontal/vertical scroll percentages when their UIA patterns are supported. Window observations also return `focusedControlId`, `documentText`, `selectedText`, and `selectedControlIds`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session; `observe_changes` compares these semantic states as well as identity, layout, focus, and patterns.
 
-Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Screenshot coordinates are mapped from the capture's DWM-visible screen origin. A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Self-contained click/scroll/drag actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification; mouse down/up actions return the tracked held-button state.
+Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Window screenshot coordinates map from the DWM-visible frame; desktop screenshot coordinates map from the physical virtual-desktop origin, including negative monitor origins. A bound action is rejected before input if the id is unknown/expired, belongs to another target, a window moved/resized, or display topology changed. Semantic and input mutations invalidate older screenshot ids. Window click/scroll/drag actions return `window-and-screenshot-reobserve`; desktop-bound actions avoid foreground activation and return `desktop-screenshot-reobserve`; direct screen actions need no selector and return `screen-input-and-desktop-reobserve`. Mouse down/up return tracked held-button state and should finish through explicit screen coordinates after the initiating screenshot becomes invalid.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.
 

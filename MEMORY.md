@@ -103,6 +103,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Templates use high-quality resampling, the existing sampled BGRA/SAD coarse-to-fine search at each size, and global score ordering plus cross-scale overlap suppression. Each match returns its scale and scaled image/screen bounds while retaining the fresh screenshot id.
 - Seventeen unit cases include an exact synthetic 1.5x recovery. Three consecutive real WGC E2E runs shrink a real button template to 80%, recover it at 1.25x in 406-438 ms, and successfully click through the returned screenshot coordinates; exact-scale matching remains score 1.0 in 109-125 ms.
 
+### v0.14.0 — actionable full virtual-desktop observations
+
+- Virtual-desktop `capture` and fresh desktop `ocr` observations are now cached as first-class screenshot ids. `find_text` and `find_image` accept `desktop=true`; desktop coordinates map from the physical virtual-screen origin and are rejected after age expiry or display-topology changes.
+- `move_pointer`, `click`, `mouse_down`, `mouse_up`, `scroll`, and `drag` can consume a desktop screenshot without a window selector or foreground activation. Explicit `coordinate_space=screen` also supports direct no-selector input; state-changing desktop actions re-capture the desktop and return `desktop-screenshot-reobserve` plus a fresh id.
+- Desktop/window selector conflicts fail before input. Eighteen unit cases gate the desktop visual schemas. Three consecutive full E2E runs on the current 2560x1600 150%-scaled desktop prove full-screen capture bounds, stale/conflict rejection, full-desktop OCR grounding of `SAVE`, screenshot-bound pointer/click/drag, direct-screen middle-button down/up, and clean joint input teardown.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

@@ -240,6 +240,7 @@ public sealed class BrokerDispatcher : IDisposable
     private CaptureResult Capture(JsonElement args)
     {
         var desktop = args.Bool("desktop");
+        if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
         var window = desktop ? null : _windows.Resolve(args);
         return RememberCapture(window, _capture.Capture(window, args.String("path")));
     }
@@ -262,15 +263,14 @@ public sealed class BrokerDispatcher : IDisposable
         if (temporary)
         {
             path = Path.Combine(Path.GetTempPath(), $"wcu-ocr-{Guid.NewGuid():N}.png");
+            if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
             capturedWindow = args.Bool("desktop") ? null : _windows.Resolve(args);
             capture = RememberCapture(capturedWindow, _capture.Capture(capturedWindow, path));
         }
         try
         {
             var node = ToJsonObject(await _ocr.RecognizeAsync(path!, args.String("language"), cancellationToken));
-            // Only window captures are cached and therefore safe to feed back into
-            // screenshot-bound input. Desktop OCR remains recognition-only.
-            if (capture is not null && capturedWindow is not null) AddCaptureMetadata(node, capture);
+            if (capture is not null) AddCaptureMetadata(node, capture);
             return node;
         }
         finally { if (temporary && File.Exists(path)) File.Delete(path); }
@@ -283,7 +283,8 @@ public sealed class BrokerDispatcher : IDisposable
         if (mode is not "exact" and not "contains") throw new ArgumentException("match must be exact or contains");
         var comparison = args.Bool("case_sensitive") ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         var limit = Math.Clamp(args.Int("limit", 50), 1, 200);
-        var window = _windows.Resolve(args);
+        if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+        var window = args.Bool("desktop") ? null : _windows.Resolve(args);
         var path = Path.Combine(Path.GetTempPath(), $"wcu-find-text-{Guid.NewGuid():N}.png");
         var capture = RememberCapture(window, _capture.Capture(window, path));
         try
@@ -330,7 +331,8 @@ public sealed class BrokerDispatcher : IDisposable
     private object FindImage(JsonElement args)
     {
         var templatePath = args.String("template_path") ?? throw new ArgumentException("template_path is required");
-        var window = _windows.Resolve(args);
+        if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+        var window = args.Bool("desktop") ? null : _windows.Resolve(args);
         var capture = RememberCapture(window, _capture.Capture(window));
         return _imageMatcher.Find(
             templatePath,
@@ -348,9 +350,7 @@ public sealed class BrokerDispatcher : IDisposable
         if (coordinateSpace is not "window" and not "screen" and not "screenshot")
             throw new ArgumentException("coordinate_space must be window, screen, or screenshot");
         var screenshotId = args.String("screenshot_id");
-        var hasWindowSelector = args.Long("window_id") != 0 ||
-            !string.IsNullOrWhiteSpace(args.String("title")) ||
-            !string.IsNullOrWhiteSpace(args.String("app"));
+        var hasWindowSelector = HasWindowSelector(args);
         WindowDescriptor? window = null;
         if (hasWindowSelector)
         {
@@ -360,14 +360,14 @@ public sealed class BrokerDispatcher : IDisposable
         {
             if (!_screenshots.TryGetValue(screenshotId, out var cached))
                 throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or snapshot the target window again.");
-            window = _windows.Resolve(cached.WindowId);
+            if (cached.WindowId is long windowId) window = _windows.Resolve(windowId);
         }
         else if (coordinateSpace != "screen")
         {
             throw new ArgumentException($"coordinate_space={coordinateSpace} requires a window selector or screenshot_id.");
         }
 
-        var screenshot = window is null ? null : ValidateScreenshot(args, window);
+        var screenshot = window is null ? ValidateDesktopScreenshot(args) : ValidateScreenshot(args, window);
         var requested = coordinateSpace switch
         {
             "screen" => (args.Int("x"), args.Int("y")),
@@ -390,6 +390,42 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult Click(JsonElement args)
     {
+        var desktopCapture = ValidateDesktopScreenshot(args);
+        if (desktopCapture is not null)
+        {
+            var desktopPoint = ScreenshotPoint(desktopCapture, args.Int("x"), args.Int("y"));
+            _input.Click(desktopPoint.X, desktopPoint.Y, args.String("button") ?? "left", args.Int("count", 1));
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var desktopAfterCapture = RememberCapture(null, _capture.Capture(null));
+            return new ActionResult(
+                true,
+                "click",
+                "sendinput",
+                new ActionVerification(true, "desktop-screenshot-reobserve", desktopCapture.Sha256, desktopAfterCapture.Sha256),
+                new
+                {
+                    x = desktopPoint.X,
+                    y = desktopPoint.Y,
+                    coordinate_space = "physical-screen-pixels",
+                    after_screenshot_id = desktopAfterCapture.Id,
+                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256
+                });
+        }
+        if (IsDirectScreenAction(args))
+        {
+            var screenPoint = (X: args.Int("x"), Y: args.Int("y"));
+            _input.Click(screenPoint.X, screenPoint.Y, args.String("button") ?? "left", args.Int("count", 1));
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
+            return new ActionResult(
+                true,
+                "click",
+                "sendinput",
+                new ActionVerification(true, "screen-input-and-desktop-reobserve", null, screenAfterCapture.Sha256),
+                new { x = screenPoint.X, y = screenPoint.Y, coordinate_space = "physical-screen-pixels", after_screenshot_id = screenAfterCapture.Id });
+        }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
@@ -419,6 +455,37 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult MouseDown(JsonElement args)
     {
+        var desktopCapture = ValidateDesktopScreenshot(args);
+        if (desktopCapture is not null)
+        {
+            var desktopPoint = ScreenshotPoint(desktopCapture, args.Int("x"), args.Int("y"));
+            var desktopButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+            var desktopBefore = string.Join('+', _input.HeldMouseButtons);
+            _input.MouseDown(desktopPoint.X, desktopPoint.Y, desktopButton);
+            _screenshots.Clear();
+            var desktopAfter = string.Join('+', _input.HeldMouseButtons);
+            return new ActionResult(
+                true,
+                "mouse_down",
+                "sendinput-mouse-state",
+                new ActionVerification(_input.HeldMouseButtons.Contains(desktopButton), "held-mouse-state", desktopBefore, desktopAfter),
+                new { x = desktopPoint.X, y = desktopPoint.Y, button = desktopButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+        }
+        if (IsDirectScreenAction(args))
+        {
+            var screenPoint = (X: args.Int("x"), Y: args.Int("y"));
+            var screenButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+            var screenBefore = string.Join('+', _input.HeldMouseButtons);
+            _input.MouseDown(screenPoint.X, screenPoint.Y, screenButton);
+            _screenshots.Clear();
+            var screenAfter = string.Join('+', _input.HeldMouseButtons);
+            return new ActionResult(
+                true,
+                "mouse_down",
+                "sendinput-mouse-state",
+                new ActionVerification(_input.HeldMouseButtons.Contains(screenButton), "held-mouse-state", screenBefore, screenAfter),
+                new { x = screenPoint.X, y = screenPoint.Y, button = screenButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+        }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
@@ -438,6 +505,37 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult MouseUp(JsonElement args)
     {
+        var desktopCapture = ValidateDesktopScreenshot(args);
+        if (desktopCapture is not null)
+        {
+            var desktopPoint = ScreenshotPoint(desktopCapture, args.Int("x"), args.Int("y"));
+            var desktopButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+            var desktopBefore = string.Join('+', _input.HeldMouseButtons);
+            _input.MouseUp(desktopPoint.X, desktopPoint.Y, desktopButton);
+            _screenshots.Clear();
+            var desktopAfter = string.Join('+', _input.HeldMouseButtons);
+            return new ActionResult(
+                true,
+                "mouse_up",
+                "sendinput-mouse-state",
+                new ActionVerification(!_input.HeldMouseButtons.Contains(desktopButton), "held-mouse-state", desktopBefore, desktopAfter),
+                new { x = desktopPoint.X, y = desktopPoint.Y, button = desktopButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+        }
+        if (IsDirectScreenAction(args))
+        {
+            var screenPoint = (X: args.Int("x"), Y: args.Int("y"));
+            var screenButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+            var screenBefore = string.Join('+', _input.HeldMouseButtons);
+            _input.MouseUp(screenPoint.X, screenPoint.Y, screenButton);
+            _screenshots.Clear();
+            var screenAfter = string.Join('+', _input.HeldMouseButtons);
+            return new ActionResult(
+                true,
+                "mouse_up",
+                "sendinput-mouse-state",
+                new ActionVerification(!_input.HeldMouseButtons.Contains(screenButton), "held-mouse-state", screenBefore, screenAfter),
+                new { x = screenPoint.X, y = screenPoint.Y, button = screenButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+        }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
@@ -502,6 +600,39 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult Scroll(JsonElement args)
     {
+        var desktopCapture = ValidateDesktopScreenshot(args);
+        if (desktopCapture is not null)
+        {
+            var desktopPoint = ScreenshotPoint(
+                desktopCapture,
+                args.Int("x", desktopCapture.CaptureBounds.Width / 2),
+                args.Int("y", desktopCapture.CaptureBounds.Height / 2));
+            _input.Scroll(desktopPoint.X, desktopPoint.Y, args.Int("vertical"), args.Int("horizontal"));
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var desktopAfterCapture = RememberCapture(null, _capture.Capture(null));
+            return new ActionResult(
+                true,
+                "scroll",
+                "sendinput",
+                new ActionVerification(true, "desktop-screenshot-reobserve", desktopCapture.Sha256, desktopAfterCapture.Sha256),
+                new { x = desktopPoint.X, y = desktopPoint.Y, after_screenshot_id = desktopAfterCapture.Id, visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256 });
+        }
+        if (IsDirectScreenAction(args))
+        {
+            var bounds = VirtualDesktopBounds();
+            var screenPoint = (X: args.Int("x", bounds.X + bounds.Width / 2), Y: args.Int("y", bounds.Y + bounds.Height / 2));
+            _input.Scroll(screenPoint.X, screenPoint.Y, args.Int("vertical"), args.Int("horizontal"));
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
+            return new ActionResult(
+                true,
+                "scroll",
+                "sendinput",
+                new ActionVerification(true, "screen-input-and-desktop-reobserve", null, screenAfterCapture.Sha256),
+                new { x = screenPoint.X, y = screenPoint.Y, after_screenshot_id = screenAfterCapture.Id });
+        }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
@@ -521,6 +652,39 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult Drag(JsonElement args)
     {
+        var desktopCapture = ValidateDesktopScreenshot(args);
+        if (desktopCapture is not null)
+        {
+            var desktopFrom = ScreenshotPoint(desktopCapture, args.Int("from_x"), args.Int("from_y"));
+            var desktopTo = ScreenshotPoint(desktopCapture, args.Int("to_x"), args.Int("to_y"));
+            var desktopButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+            _input.Drag(desktopFrom.X, desktopFrom.Y, desktopTo.X, desktopTo.Y, args.Int("duration_ms", 300), desktopButton);
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var desktopAfterCapture = RememberCapture(null, _capture.Capture(null));
+            return new ActionResult(
+                true,
+                "drag",
+                "sendinput",
+                new ActionVerification(true, "desktop-screenshot-reobserve", desktopCapture.Sha256, desktopAfterCapture.Sha256),
+                new { from = desktopFrom, to = desktopTo, button = desktopButton, held_buttons = _input.HeldMouseButtons, after_screenshot_id = desktopAfterCapture.Id, visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256 });
+        }
+        if (IsDirectScreenAction(args))
+        {
+            var screenFrom = (X: args.Int("from_x"), Y: args.Int("from_y"));
+            var screenTo = (X: args.Int("to_x"), Y: args.Int("to_y"));
+            var screenButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+            _input.Drag(screenFrom.X, screenFrom.Y, screenTo.X, screenTo.Y, args.Int("duration_ms", 300), screenButton);
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
+            return new ActionResult(
+                true,
+                "drag",
+                "sendinput",
+                new ActionVerification(true, "screen-input-and-desktop-reobserve", null, screenAfterCapture.Sha256),
+                new { from = screenFrom, to = screenTo, button = screenButton, held_buttons = _input.HeldMouseButtons, after_screenshot_id = screenAfterCapture.Id });
+        }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
@@ -580,13 +744,20 @@ public sealed class BrokerDispatcher : IDisposable
         return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow, released_keys = releasedKeys, released_buttons = releasedButtons };
     }
 
+    private static bool HasWindowSelector(JsonElement args) =>
+        args.Long("window_id") != 0 ||
+        !string.IsNullOrWhiteSpace(args.String("title")) ||
+        !string.IsNullOrWhiteSpace(args.String("app"));
+
+    private static bool IsDirectScreenAction(JsonElement args) =>
+        string.Equals(args.String("coordinate_space"), "screen", StringComparison.OrdinalIgnoreCase) &&
+        string.IsNullOrWhiteSpace(args.String("screenshot_id")) &&
+        !HasWindowSelector(args);
+
     private CaptureResult RememberCapture(WindowDescriptor? window, CaptureResult capture)
     {
-        if (window is not null)
-        {
-            _screenshots[capture.Id] = new ScreenshotRecord(window.Id, window.Bounds, capture.Bounds, capture.CapturedAt, capture.Sha256);
-            while (_screenshots.Count > 32) _screenshots.Remove(_screenshots.First().Key);
-        }
+        _screenshots[capture.Id] = new ScreenshotRecord(window?.Id, window?.Bounds, capture.Bounds, capture.CapturedAt, capture.Sha256);
+        while (_screenshots.Count > 32) _screenshots.Remove(_screenshots.First().Key);
         return capture;
     }
 
@@ -596,15 +767,46 @@ public sealed class BrokerDispatcher : IDisposable
         if (string.IsNullOrWhiteSpace(screenshotId)) return null;
         if (!_screenshots.TryGetValue(screenshotId, out var screenshot))
             throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or snapshot the target window again before using pixel coordinates.");
-        if (screenshot.WindowId != window.Id)
+        if (screenshot.WindowId is null)
+            throw new InvalidOperationException("The screenshot_id belongs to the virtual desktop. Use it without a window selector so input targets the visible desktop without foreground activation.");
+        if (screenshot.WindowId.Value != window.Id)
             throw new InvalidOperationException("The screenshot_id belongs to a different window. Capture or snapshot the selected window again.");
-        if (screenshot.Bounds != window.Bounds)
+        if (screenshot.WindowBounds != window.Bounds)
             throw new InvalidOperationException("The target window moved or resized after the screenshot. Capture or snapshot it again before using pixel coordinates.");
-        var maxAge = Math.Clamp(args.Int("max_age_ms", 15_000), 100, 120_000);
-        if (DateTimeOffset.UtcNow - screenshot.CapturedAt > TimeSpan.FromMilliseconds(maxAge))
-            throw new InvalidOperationException("The screenshot_id is stale. Capture or snapshot the target window again before using pixel coordinates.");
+        ValidateScreenshotAge(args, screenshot);
         return screenshot;
     }
+
+    private ScreenshotRecord? ValidateDesktopScreenshot(JsonElement args)
+    {
+        var screenshotId = args.String("screenshot_id");
+        if (string.IsNullOrWhiteSpace(screenshotId)) return null;
+        if (!_screenshots.TryGetValue(screenshotId, out var screenshot))
+            throw new InvalidOperationException("Unknown or expired screenshot_id. Capture the virtual desktop again before using screenshot coordinates.");
+        if (screenshot.WindowId is not null) return null;
+        if (HasWindowSelector(args))
+            throw new InvalidOperationException("A virtual-desktop screenshot_id cannot be combined with a window selector. Use the desktop observation directly without foreground activation.");
+        if (!string.Equals(args.String("coordinate_space"), "screenshot", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("A virtual-desktop screenshot_id must be used with coordinate_space=screenshot.");
+        var currentBounds = VirtualDesktopBounds();
+        if (screenshot.CaptureBounds != currentBounds)
+            throw new InvalidOperationException("The virtual desktop topology changed after the screenshot. Capture it again before using screenshot coordinates.");
+        ValidateScreenshotAge(args, screenshot);
+        return screenshot;
+    }
+
+    private static void ValidateScreenshotAge(JsonElement args, ScreenshotRecord screenshot)
+    {
+        var maxAge = Math.Clamp(args.Int("max_age_ms", 15_000), 100, 120_000);
+        if (DateTimeOffset.UtcNow - screenshot.CapturedAt > TimeSpan.FromMilliseconds(maxAge))
+            throw new InvalidOperationException("The screenshot_id is stale. Capture or snapshot again before using pixel coordinates.");
+    }
+
+    private static RectDto VirtualDesktopBounds() => new(
+        NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen),
+        NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen),
+        NativeMethods.GetSystemMetrics(NativeMethods.SmCxVirtualScreen),
+        NativeMethods.GetSystemMetrics(NativeMethods.SmCyVirtualScreen));
 
     private WindowInspection RememberObservation(WindowInspection inspection)
     {
@@ -716,5 +918,5 @@ public sealed class BrokerDispatcher : IDisposable
         before.VerticalScrollPercent == after.VerticalScrollPercent &&
         before.Patterns.SequenceEqual(after.Patterns, StringComparer.Ordinal);
 
-    private sealed record ScreenshotRecord(long WindowId, RectDto Bounds, RectDto CaptureBounds, DateTimeOffset CapturedAt, string Sha256);
+    private sealed record ScreenshotRecord(long? WindowId, RectDto? WindowBounds, RectDto CaptureBounds, DateTimeOffset CapturedAt, string Sha256);
 }

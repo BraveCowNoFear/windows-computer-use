@@ -145,6 +145,14 @@ try {
     if ($buttonDrag.data.button -ne 'right' -or @($buttonDrag.data.held_buttons).Count -ne 0) { throw 'The configurable-button drag did not finish with a clean mouse state.' }
     $rightDragWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Right'; state = 'exists'; timeout_ms = 1500 }
     if (-not $rightDragWait.matched) { throw 'The test app did not observe the right-button drag release.' }
+    $directMouseDown = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ x = $mouseX; y = $mouseY; coordinate_space = 'screen'; button = 'middle' }
+    if (@($directMouseDown.data.held_buttons) -notcontains 'middle' -or -not $directMouseDown.verification.verified) { throw 'Direct screen-space mouse_down did not hold the middle button.' }
+    $directMouseDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse down: Middle'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $directMouseDownWait.matched) { throw 'The test app did not observe direct screen-space mouse_down.' }
+    $directMouseUp = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ x = $mouseX; y = $mouseY; coordinate_space = 'screen'; button = 'middle' }
+    if (@($directMouseUp.data.held_buttons).Count -ne 0 -or -not $directMouseUp.verification.verified) { throw 'Direct screen-space mouse_up did not release the middle button.' }
+    $directMouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Middle'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $directMouseUpWait.matched) { throw 'The test app did not observe direct screen-space mouse_up.' }
 
     $script:stage = 'toggle-state'
     $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
@@ -267,6 +275,61 @@ try {
     $pixelExpected = 'Saved: ' + $pixelText
     $pixelWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $pixelExpected; state = 'exists'; timeout_ms = 5000 }
     if (-not $pixelWait.matched) { throw 'Screenshot-space coordinate mapping did not invoke the target button.' }
+
+    $script:stage = 'desktop-grounding'
+    $desktopText = 'Desktop mapped'
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $desktopText } | Out-Null
+    $desktopCapture = Invoke-WcuTool -Name 'capture' -Arguments @{ desktop = $true }
+    $desktopMeta = $desktopCapture.content[0].text | ConvertFrom-Json
+    if (-not $desktopMeta.id -or $desktopMeta.bounds.x -ne $displayInfo.virtualDesktop.x -or $desktopMeta.bounds.y -ne $displayInfo.virtualDesktop.y -or $desktopMeta.bounds.width -ne $displayInfo.virtualDesktop.width -or $desktopMeta.bounds.height -ne $displayInfo.virtualDesktop.height) {
+        throw 'Virtual-desktop capture metadata does not match the physical display topology.'
+    }
+    $desktopSelectorConflictRejected = $false
+    try {
+        Invoke-WcuTool -Name 'move_pointer' -Arguments @{ window_id = $windowId; x = 0; y = 0; coordinate_space = 'screenshot'; screenshot_id = $desktopMeta.id } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'window selector') { $desktopSelectorConflictRejected = $true } else { throw }
+    }
+    if (-not $desktopSelectorConflictRejected) { throw 'Virtual-desktop screenshot accepted a conflicting window selector.' }
+    Start-Sleep -Milliseconds 120
+    $staleDesktopRejected = $false
+    try {
+        Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 0; y = 0; coordinate_space = 'screenshot'; screenshot_id = $desktopMeta.id; max_age_ms = 100 } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'stale') { $staleDesktopRejected = $true } else { throw }
+    }
+    if (-not $staleDesktopRejected) { throw 'Stale virtual-desktop screenshot coordinates were not rejected.' }
+    $desktopOcr = Invoke-WcuTool -Name 'find_text' -Arguments @{ desktop = $true; text = 'SAVE'; match = 'exact'; limit = 20 }
+    $desktopOcrMatches = @($desktopOcr.matches | Where-Object {
+        $_.kind -eq 'word' -and
+        $_.screen_bounds.x -lt $button.controls[0].bounds.right -and $_.screen_bounds.right -gt $button.controls[0].bounds.x -and
+        $_.screen_bounds.y -lt $button.controls[0].bounds.bottom -and $_.screen_bounds.bottom -gt $button.controls[0].bounds.y
+    })
+    if (-not $desktopOcr.ok -or -not $desktopOcr.screenshot_id -or $desktopOcr.coordinate_space -ne 'screenshot' -or $desktopOcr.capture_bounds.x -ne $displayInfo.virtualDesktop.x -or $desktopOcr.capture_bounds.y -ne $displayInfo.virtualDesktop.y -or $desktopOcrMatches.Count -lt 1) {
+        throw 'Fresh virtual-desktop OCR grounding did not return an actionable match for the visible button.'
+    }
+    $desktopButtonX = [int]$desktopOcrMatches[0].center.x
+    $desktopButtonY = [int]$desktopOcrMatches[0].center.y
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopOcr.screenshot_id } | Out-Null
+    $desktopPointer = Invoke-WcuTool -Name 'pointer_position'
+    if ($desktopPointer.x -ne ([int]$desktopOcr.capture_bounds.x + $desktopButtonX) -or $desktopPointer.y -ne ([int]$desktopOcr.capture_bounds.y + $desktopButtonY)) {
+        throw 'Virtual-desktop screenshot coordinates did not map to physical pointer coordinates.'
+    }
+    $desktopClick = Invoke-WcuTool -Name 'click' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopOcr.screenshot_id }
+    if (-not $desktopClick.ok -or $desktopClick.verification.strategy -ne 'desktop-screenshot-reobserve' -or -not $desktopClick.data.after_screenshot_id) {
+        throw 'Virtual-desktop screenshot-bound click did not re-observe the whole desktop.'
+    }
+    $desktopExpected = 'Saved: ' + $desktopText
+    $desktopWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $desktopExpected; state = 'exists'; timeout_ms = 5000 }
+    if (-not $desktopWait.matched) { throw 'Virtual-desktop screenshot-bound click did not invoke the visible target.' }
+    $desktopMouseX = $mouseX - [int]$desktopMeta.bounds.x
+    $desktopMouseY = $mouseY - [int]$desktopMeta.bounds.y
+    $desktopDrag = Invoke-WcuTool -Name 'drag' -Arguments @{ from_x = $desktopMouseX; from_y = $desktopMouseY; to_x = ($desktopMouseX + 16); to_y = $desktopMouseY; coordinate_space = 'screenshot'; screenshot_id = $desktopClick.data.after_screenshot_id; button = 'middle'; duration_ms = 80 }
+    if (-not $desktopDrag.ok -or $desktopDrag.verification.strategy -ne 'desktop-screenshot-reobserve' -or @($desktopDrag.data.held_buttons).Count -ne 0 -or -not $desktopDrag.data.after_screenshot_id) {
+        throw 'Virtual-desktop screenshot-bound drag did not finish and re-observe safely.'
+    }
+    $desktopDragPointer = Invoke-WcuTool -Name 'pointer_position'
+    if ($desktopDragPointer.x -ne ($mouseX + 16) -or $desktopDragPointer.y -ne $mouseY) { throw 'Virtual-desktop screenshot-bound drag ended at the wrong physical point.' }
 
     $script:stage = 'image-grounding'
     $imageText = 'Image matched'
@@ -416,6 +479,12 @@ try {
         semantic_screenshot_invalidation = $semanticInvalidatedScreenshot
         screenshot_bound_action = $pixelClick.verification.strategy
         screenshot_space_mapping = $pixelWait.matched
+        desktop_screenshot_bound_action = $desktopClick.verification.strategy
+        desktop_screenshot_space_mapping = $desktopWait.matched
+        desktop_screenshot_bound_drag = $desktopDrag.verification.strategy
+        desktop_stale_screenshot_rejected = $staleDesktopRejected
+        desktop_selector_conflict_rejected = $desktopSelectorConflictRejected
+        desktop_ocr_screenshot_bound = $desktopOcrMatches.Count
         ocr_text_grounding = $ocrTarget.count
         stale_screenshot_rejected = $staleRejected
         occluded_window_capture = $true
@@ -449,6 +518,7 @@ try {
         implied_shift_repeat = $uppercaseWait.matched
         held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched
         configurable_button_drag = $rightDragWait.matched
+        direct_screen_mouse_roundtrip = $directMouseDownWait.matched -and $directMouseUpWait.matched
         end_session_released_keys = $ended.released_keys
         end_session_released_buttons = $ended.released_buttons
         recreated_window_recovered = $true

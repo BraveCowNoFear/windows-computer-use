@@ -16,9 +16,13 @@ If the target is minimized, call `set_window_state` with `restore` first. Otherw
 
 ## Input went to the wrong control
 
-Stop coordinate retries. Inspect focus, use a stable semantic control id with `enter_text`, then wait for the expected UI state. All state-changing tools activate their selected window before input.
+Stop coordinate retries. Inspect focus, use a stable semantic control id with `enter_text`, then wait for the expected UI state. Window-scoped state-changing tools activate their selected window before input; virtual-desktop and direct-screen actions intentionally do not.
 
 If a held key or mouse button outlives the intended gesture, call `key_up` or `mouse_up` with the same explicit name. `end_session` releases every tracked mouse button before every tracked key, and broker shutdown provides the same final cleanup backstop.
+
+## Desktop screenshot rejected
+
+Capture the virtual desktop again. Desktop screenshot ids are invalidated after input and rejected when they expire or when a monitor is connected, disconnected, repositioned, or changes resolution. Use `coordinate_space=screenshot` without a window selector for a bound desktop action. Because mouse-down invalidates its source image, finish a cross-action hold with explicit `coordinate_space=screen` coordinates.
 
 ## UI lock busy
 

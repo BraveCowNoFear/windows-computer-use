@@ -99,9 +99,17 @@ public sealed class InputService
 
     private static readonly Dictionary<string, char> PrintableAliases = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["plus"] = '+', ["minus"] = '-', ["comma"] = ',', ["period"] = '.', ["slash"] = '/',
-        ["backslash"] = '\\', ["semicolon"] = ';', ["quote"] = '\'', ["backtick"] = '`',
-        ["leftbracket"] = '[', ["rightbracket"] = ']'
+        ["plus"] = '+',
+        ["minus"] = '-',
+        ["comma"] = ',',
+        ["period"] = '.',
+        ["slash"] = '/',
+        ["backslash"] = '\\',
+        ["semicolon"] = ';',
+        ["quote"] = '\'',
+        ["backtick"] = '`',
+        ["leftbracket"] = '[',
+        ["rightbracket"] = ']'
     };
 
     private static readonly HashSet<ushort> ExtendedKeys =

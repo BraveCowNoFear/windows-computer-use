@@ -871,13 +871,25 @@ public sealed class BrokerDispatcher : IDisposable
             var desktopBefore = string.Join('+', _input.HeldMouseButtons);
             _input.MouseDown(desktopPoint.X, desktopPoint.Y, desktopButton);
             _screenshots.Clear();
+            Thread.Sleep(100);
+            var desktopAfterCapture = RememberCapture(null, _capture.Capture(null));
             var desktopAfter = string.Join('+', _input.HeldMouseButtons);
             return new ActionResult(
                 true,
                 "mouse_down",
                 "sendinput-mouse-state",
                 new ActionVerification(_input.HeldMouseButtons.Contains(desktopButton), "held-mouse-state", desktopBefore, desktopAfter),
-                new { x = desktopPoint.X, y = desktopPoint.Y, button = desktopButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+                new
+                {
+                    x = desktopPoint.X,
+                    y = desktopPoint.Y,
+                    button = desktopButton,
+                    held_buttons = _input.HeldMouseButtons,
+                    desktop = true,
+                    after_screenshot_id = desktopAfterCapture.Id,
+                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(desktopCapture, desktopAfterCapture)
+                });
         }
         if (IsDirectScreenAction(args))
         {
@@ -886,13 +898,23 @@ public sealed class BrokerDispatcher : IDisposable
             var screenBefore = string.Join('+', _input.HeldMouseButtons);
             _input.MouseDown(screenPoint.X, screenPoint.Y, screenButton);
             _screenshots.Clear();
+            Thread.Sleep(100);
+            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
             var screenAfter = string.Join('+', _input.HeldMouseButtons);
             return new ActionResult(
                 true,
                 "mouse_down",
                 "sendinput-mouse-state",
                 new ActionVerification(_input.HeldMouseButtons.Contains(screenButton), "held-mouse-state", screenBefore, screenAfter),
-                new { x = screenPoint.X, y = screenPoint.Y, button = screenButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+                new
+                {
+                    x = screenPoint.X,
+                    y = screenPoint.Y,
+                    button = screenButton,
+                    held_buttons = _input.HeldMouseButtons,
+                    desktop = true,
+                    after_screenshot_id = screenAfterCapture.Id
+                });
         }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
@@ -902,13 +924,26 @@ public sealed class BrokerDispatcher : IDisposable
         var before = string.Join('+', _input.HeldMouseButtons);
         _input.MouseDown(point.X, point.Y, button);
         _screenshots.Clear();
+        Thread.Sleep(100);
+        var afterWindow = _windows.Resolve(window.Id);
+        var afterCapture = RememberCapture(afterWindow, _capture.Capture(afterWindow));
         var after = string.Join('+', _input.HeldMouseButtons);
         return new ActionResult(
             true,
             "mouse_down",
             "sendinput-mouse-state",
             new ActionVerification(_input.HeldMouseButtons.Contains(button), "held-mouse-state", before, after),
-            new { x = point.X, y = point.Y, button, held_buttons = _input.HeldMouseButtons, window_id = window.Id });
+            new
+            {
+                x = point.X,
+                y = point.Y,
+                button,
+                held_buttons = _input.HeldMouseButtons,
+                window_id = window.Id,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private ActionResult MouseUp(JsonElement args)
@@ -921,13 +956,25 @@ public sealed class BrokerDispatcher : IDisposable
             var desktopBefore = string.Join('+', _input.HeldMouseButtons);
             _input.MouseUp(desktopPoint.X, desktopPoint.Y, desktopButton);
             _screenshots.Clear();
+            Thread.Sleep(100);
+            var desktopAfterCapture = RememberCapture(null, _capture.Capture(null));
             var desktopAfter = string.Join('+', _input.HeldMouseButtons);
             return new ActionResult(
                 true,
                 "mouse_up",
                 "sendinput-mouse-state",
                 new ActionVerification(!_input.HeldMouseButtons.Contains(desktopButton), "held-mouse-state", desktopBefore, desktopAfter),
-                new { x = desktopPoint.X, y = desktopPoint.Y, button = desktopButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+                new
+                {
+                    x = desktopPoint.X,
+                    y = desktopPoint.Y,
+                    button = desktopButton,
+                    held_buttons = _input.HeldMouseButtons,
+                    desktop = true,
+                    after_screenshot_id = desktopAfterCapture.Id,
+                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(desktopCapture, desktopAfterCapture)
+                });
         }
         if (IsDirectScreenAction(args))
         {
@@ -936,13 +983,23 @@ public sealed class BrokerDispatcher : IDisposable
             var screenBefore = string.Join('+', _input.HeldMouseButtons);
             _input.MouseUp(screenPoint.X, screenPoint.Y, screenButton);
             _screenshots.Clear();
+            Thread.Sleep(100);
+            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
             var screenAfter = string.Join('+', _input.HeldMouseButtons);
             return new ActionResult(
                 true,
                 "mouse_up",
                 "sendinput-mouse-state",
                 new ActionVerification(!_input.HeldMouseButtons.Contains(screenButton), "held-mouse-state", screenBefore, screenAfter),
-                new { x = screenPoint.X, y = screenPoint.Y, button = screenButton, held_buttons = _input.HeldMouseButtons, desktop = true });
+                new
+                {
+                    x = screenPoint.X,
+                    y = screenPoint.Y,
+                    button = screenButton,
+                    held_buttons = _input.HeldMouseButtons,
+                    desktop = true,
+                    after_screenshot_id = screenAfterCapture.Id
+                });
         }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
@@ -952,13 +1009,26 @@ public sealed class BrokerDispatcher : IDisposable
         var before = string.Join('+', _input.HeldMouseButtons);
         _input.MouseUp(point.X, point.Y, button);
         _screenshots.Clear();
+        Thread.Sleep(100);
+        var afterWindow = _windows.Resolve(window.Id);
+        var afterCapture = RememberCapture(afterWindow, _capture.Capture(afterWindow));
         var after = string.Join('+', _input.HeldMouseButtons);
         return new ActionResult(
             true,
             "mouse_up",
             "sendinput-mouse-state",
             new ActionVerification(!_input.HeldMouseButtons.Contains(button), "held-mouse-state", before, after),
-            new { x = point.X, y = point.Y, button, held_buttons = _input.HeldMouseButtons, window_id = window.Id });
+            new
+            {
+                x = point.X,
+                y = point.Y,
+                button,
+                held_buttons = _input.HeldMouseButtons,
+                window_id = window.Id,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private ActionResult PressKey(JsonElement args)

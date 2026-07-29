@@ -371,13 +371,19 @@ try {
     if ($mouseSurface.count -ne 1) { throw 'Could not uniquely resolve the mouse interaction surface.' }
     $mouseX = [int]$mouseSurface.controls[0].bounds.x + [int]($mouseSurface.controls[0].bounds.width / 2)
     $mouseY = [int]$mouseSurface.controls[0].bounds.y + [int]($mouseSurface.controls[0].bounds.height / 2)
-    $heldMouse = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ window_id = $windowId; x = $mouseX; y = $mouseY; coordinate_space = 'screen'; button = 'left' }
-    if (@($heldMouse.data.held_buttons) -notcontains 'left' -or -not $heldMouse.verification.verified) { throw 'mouse_down did not report and verify the held left button.' }
+    $mouseFrame = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId }
+    $mouseFrameMeta = $mouseFrame.content[0].text | ConvertFrom-Json
+    $mouseImageX = $mouseX - [int]$mouseFrameMeta.bounds.x
+    $mouseImageY = $mouseY - [int]$mouseFrameMeta.bounds.y
+    $heldMouse = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ window_id = $windowId; x = $mouseImageX; y = $mouseImageY; coordinate_space = 'screenshot'; screenshot_id = $mouseFrameMeta.id; button = 'left' }
+    if (@($heldMouse.data.held_buttons) -notcontains 'left' -or -not $heldMouse.verification.verified -or -not $heldMouse.data.after_screenshot_id -or
+        -not $heldMouse.data.visual_diff.comparable -or -not $heldMouse.data.visual_diff.changed) { throw 'Screenshot-bound mouse_down did not report a held button and actionable visual evidence.' }
     $mouseDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse down: Left'; state = 'exists'; timeout_ms = 3000 }
     if (-not $mouseDownWait.matched) { throw 'The test app did not observe the held left mouse button.' }
     Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; duration_ms = 80 } | Out-Null
-    $releasedMouse = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ window_id = $windowId; x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; button = 'left' }
-    if (@($releasedMouse.data.held_buttons).Count -ne 0 -or -not $releasedMouse.verification.verified) { throw 'mouse_up left a tracked mouse button held.' }
+    $releasedMouse = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ window_id = $windowId; x = ($mouseImageX + 12); y = $mouseImageY; coordinate_space = 'screenshot'; screenshot_id = $heldMouse.data.after_screenshot_id; button = 'left' }
+    if (@($releasedMouse.data.held_buttons).Count -ne 0 -or -not $releasedMouse.verification.verified -or -not $releasedMouse.data.after_screenshot_id -or
+        -not $releasedMouse.data.visual_diff.comparable -or -not $releasedMouse.data.visual_diff.changed) { throw 'Screenshot-bound mouse_up did not release the tracked button with actionable visual evidence.' }
     $mouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Left'; state = 'exists'; timeout_ms = 3000 }
     if (-not $mouseUpWait.matched) { throw 'The test app did not observe the left mouse button release.' }
     $buttonDrag = Invoke-WcuTool -Name 'drag' -Arguments @{ window_id = $windowId; from_x = $mouseX; from_y = $mouseY; to_x = ($mouseX + 20); to_y = $mouseY; coordinate_space = 'screen'; button = 'right'; duration_ms = 100 }
@@ -392,6 +398,18 @@ try {
     if (@($directMouseUp.data.held_buttons).Count -ne 0 -or -not $directMouseUp.verification.verified) { throw 'Direct screen-space mouse_up did not release the middle button.' }
     $directMouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Middle'; state = 'exists'; timeout_ms = 1500 }
     if (-not $directMouseUpWait.matched) { throw 'The test app did not observe direct screen-space mouse_up.' }
+    $desktopMouseFrame = Invoke-WcuTool -Name 'capture' -Arguments @{ desktop = $true }
+    $desktopMouseMeta = $desktopMouseFrame.content[0].text | ConvertFrom-Json
+    $desktopMouseX = $mouseX - [int]$desktopMouseMeta.bounds.x
+    $desktopMouseY = $mouseY - [int]$desktopMouseMeta.bounds.y
+    $desktopBoundDown = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ x = $desktopMouseX; y = $desktopMouseY; coordinate_space = 'screenshot'; screenshot_id = $desktopMouseMeta.id; button = 'middle' }
+    if (@($desktopBoundDown.data.held_buttons) -notcontains 'middle' -or -not $desktopBoundDown.data.visual_diff.comparable -or -not $desktopBoundDown.data.visual_diff.changed) {
+        throw 'Desktop-screenshot mouse_down did not preserve actionable visual continuity.'
+    }
+    $desktopBoundUp = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ x = $desktopMouseX; y = $desktopMouseY; coordinate_space = 'screenshot'; screenshot_id = $desktopBoundDown.data.after_screenshot_id; button = 'middle' }
+    if (@($desktopBoundUp.data.held_buttons).Count -ne 0 -or -not $desktopBoundUp.data.visual_diff.comparable -or -not $desktopBoundUp.data.visual_diff.changed) {
+        throw 'Desktop-screenshot mouse_up did not finish the visual chain with a clean input state.'
+    }
 
     $script:stage = 'toggle-state'
     $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
@@ -915,6 +933,8 @@ try {
         desktop_keyboard_hold = $desktopShiftDownWait.matched -and $desktopShiftUpWait.matched
         desktop_keyboard_conflict_rejected = $desktopConflictRejected
         held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched
+        screenshot_bound_mouse_chain = $heldMouse.data.visual_diff.comparable -and $releasedMouse.data.visual_diff.comparable
+        desktop_screenshot_mouse_chain = $desktopBoundDown.data.visual_diff.comparable -and $desktopBoundUp.data.visual_diff.comparable
         configurable_button_drag = $rightDragWait.matched
         direct_screen_mouse_roundtrip = $directMouseDownWait.matched -and $directMouseUpWait.matched
         clipboard_roundtrip = $clipboardRoundtrip

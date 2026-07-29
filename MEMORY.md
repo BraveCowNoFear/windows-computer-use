@@ -214,6 +214,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Inline summaries include comparable/changed state, changed pixels/fraction, maximum channel delta, exact image/physical union bounds, and up to 20 localized regions. If source bounds changed, the completed input remains successful and returns `comparable=false` with geometry evidence instead of throwing; unbound/direct-screen actions have no trusted baseline.
 - Thirty-seven unit tests remain green. Real WGC E2E verifies region-bound window clicks, a full-desktop Save click with 2854 changed pixels on the development run, a no-op-capable desktop wheel action, desktop middle-button drag, and template-region click all return comparable summaries before completing every prior gate.
 
+### v0.31.0 — continuous screenshot-bound mouse gestures
+
+- `mouse_down` and `mouse_up` now re-observe after every input while preserving their higher-priority held-button verification. Each returns `after_screenshot_id`; screenshot-bound window/desktop calls also return the same exact `data.visual_diff` evidence as click/scroll/drag.
+- A cross-call gesture can chain the post-down screenshot id into `mouse_up`, eliminating the prior continuity gap where the initiating action invalidated its only grounded screenshot. Unbound window and direct-screen calls still provide a fresh post-action id but correctly omit diff evidence without a trusted baseline.
+- Thirty-seven unit tests remain green. Real WGC E2E chains screenshot-bound left-button down/up against a real window and middle-button down/up against the full desktop, requires comparable changed pixels at both transitions, verifies clean held state, and completes all 42-tool prior gates.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

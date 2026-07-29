@@ -6,10 +6,13 @@ public static class ToolCatalog
 {
     public static IReadOnlyList<ToolDefinition> All { get; } =
     [
-        Tool("list_windows", "List visible top-level Windows windows. Always use a returned window_id instead of guessing a target.", Props()),
+        Tool("list_windows", "List visible top-level Windows windows with native class and owner/root-owner relationships. Always use a returned window_id instead of guessing a target.",
+            Props(("include_untitled", S("boolean", "Include visible titleless top-level windows, default false.")))),
         Tool("display_info", "Return physical virtual-desktop bounds plus every monitor's bounds, work area, primary flag, effective DPI, and scale percentage.", Props()),
         Tool("launch_app", "Launch any app, executable, file, URI, or registered shell target in full-control mode.",
             Props(("app", S("string", "Executable path, app id, file, or URI.")), ("arguments", S("string", "Optional command-line arguments.")), ("wait_ms", S("integer", "Wait for initial UI readiness."))), ["app"]),
+        Tool("wait_for_window", "Wait for a top-level window or owned transient dialog to appear or disappear without blind sleeps.",
+            Props(("title", S("string", "Window-title substring.")), ("app", S("string", "App/process substring.")), ("window_class", S("string", "Native window-class substring.")), ("process_id", S("integer", "Exact process id.")), ("owner_window_id", S("integer", "Exact immediate owner window id.")), ("root_owner_window_id", S("integer", "Exact root-owner window id.")), ("state", Enum("exists", "absent")), ("include_untitled", S("boolean", "Include titleless top-level windows.")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
         Tool("inspect_window", "Inspect one window through UI Automation 3 and return a semantic control tree with stable control ids.",
             WindowProps(("limit", S("integer", "Maximum UIA elements, default 400.")))),
         Tool("observe_changes", "Compare a fresh hierarchical UIA observation with a cached observation id and return only added, removed, or changed controls.",
@@ -40,6 +43,8 @@ public static class ToolCatalog
             WindowProps(("x", S("integer", "X coordinate, window center by default.")), ("y", S("integer", "Y coordinate, window center by default.")), ("coordinate_space", Enum("window", "screen", "screenshot")), ("relative", S("boolean", "Legacy window-relative flag, default true.")), ("vertical", S("integer", "Wheel notches; positive up, negative down.")), ("horizontal", S("integer", "Wheel notches; positive right, negative left.")), ("screenshot_id", S("string", "Bind coordinates to a recent capture/snapshot.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms.")))),
         Tool("drag", "Drag with the left mouse button between two points in a selected window.",
             WindowProps(("from_x", S("integer", "Start X.")), ("from_y", S("integer", "Start Y.")), ("to_x", S("integer", "End X.")), ("to_y", S("integer", "End Y.")), ("coordinate_space", Enum("window", "screen", "screenshot")), ("relative", S("boolean", "Legacy window-relative flag, default true.")), ("duration_ms", S("integer", "Drag duration.")), ("screenshot_id", S("string", "Bind coordinates to a recent capture/snapshot.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms."))), ["from_x", "from_y", "to_x", "to_y"]),
+        Tool("set_window_state", "Explicitly minimize, maximize, or restore one window and verify the resulting native state.",
+            WindowProps(("state", Enum("minimize", "maximize", "restore")), ("timeout_ms", S("integer", "Verification timeout up to 10000 ms."))), ["state"]),
         Tool("activate_window", "Restore and bring exactly one selected window to the foreground.", WindowProps()),
         Tool("end_session", "Clear cached UIA elements and explicitly end the current control session.", Props())
     ];
@@ -48,7 +53,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

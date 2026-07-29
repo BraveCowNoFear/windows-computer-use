@@ -16,9 +16,10 @@ The plugin runs in **full-control mode**. It does not maintain its own app allow
 - Picker-free window PNG capture through native Windows Graphics Capture, with `PrintWindow` and screen-copy fallback.
 - DWM-visible-frame alignment and explicit `window` / `screen` / `screenshot` coordinate spaces, so WGC pixels map back to physical input without invisible-border offset.
 - Native `Windows.Media.Ocr` with line/word bounds, screenshot-bound fresh OCR, and `find_text` grounding for direct OCR-to-click workflows.
+- Owned-window/root-owner metadata, `wait_for_window` for transient dialogs, and verified minimize/maximize/restore state control.
 - Condition waits instead of blind sleeps and automatic re-observation after every action.
 - Atomic UIA + image `snapshot` observations, timestamped screenshot ids and SHA-256 hashes, plus stale-coordinate rejection after a window moves, resizes, or ages out.
-- A local stdio MCP with 20 tools and a current-user named-pipe broker.
+- A local stdio MCP with 22 tools and a current-user named-pipe broker.
 - Compatibility with the global UI lock from `desktop-control-for-windows`.
 - A real WinForms end-to-end test covering MCP handshake, UIA discovery, Chinese input, semantic invoke, condition wait, capture, OCR, and cleanup.
 
@@ -74,9 +75,9 @@ Install **Windows Computer Use** from the local **Brave Cow Windows Tools** mark
 
 ## MCP surface
 
-The 20 tools are `list_windows`, `display_info`, `launch_app`, `inspect_window`, `observe_changes`, `find_controls`, `invoke`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `find_text`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `activate_window`, and `end_session`.
+The 22 tools are `list_windows`, `display_info`, `launch_app`, `wait_for_window`, `inspect_window`, `observe_changes`, `find_controls`, `invoke`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `find_text`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `set_window_state`, `activate_window`, and `end_session`.
 
-Use the exact window id returned by `list_windows`. Prefer stable control ids from `inspect_window`/`find_controls`, and pass an earlier `observation_id` to `observe_changes` after transitions. Otherwise use `snapshot` or `find_text`, then pass its `screenshot_id` with `coordinate_space: "screenshot"`. Semantic/input actions invalidate older screenshots; the broker also rejects ids if the target moved, resized, or exceeded `max_age_ms`. Legacy coordinates remain physical window-relative pixels by default.
+Use the exact window id returned by `list_windows`. Use `wait_for_window` plus `owner_window_id` for transient dialogs. Prefer stable control ids from `inspect_window`/`find_controls`, and pass an earlier `observation_id` to `observe_changes` after transitions. Otherwise use `snapshot` or `find_text`, then pass its `screenshot_id` with `coordinate_space: "screenshot"`. Semantic/input actions invalidate older screenshots; the broker also rejects ids if the target moved, resized, or exceeded `max_age_ms`. Restore minimized windows before visual observation. Legacy coordinates remain physical window-relative pixels by default.
 
 ## Repository layout
 

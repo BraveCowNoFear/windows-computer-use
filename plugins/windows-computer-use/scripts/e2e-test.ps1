@@ -66,7 +66,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 20) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 22) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -182,6 +182,32 @@ try {
     if (-not $ocr.ok -or $ocr.text -notmatch 'Semantic UI automation test') { throw 'Windows OCR did not recognize the test window heading.' }
     $freshOcr = Invoke-WcuTool -Name 'ocr' -Arguments @{ window_id = $windowId }
     if (-not $freshOcr.ok -or -not $freshOcr.screenshot_id -or $freshOcr.coordinate_space -ne 'screenshot') { throw 'Fresh-window OCR did not return screenshot-bound coordinate metadata.' }
+
+    $dialogLauncher = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'DialogButton'; limit = 2 }
+    if ($dialogLauncher.count -ne 1) { throw 'Could not uniquely resolve the transient-dialog launcher.' }
+    Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $dialogLauncher.controls[0].id } | Out-Null
+    $dialogWait = Invoke-WcuTool -Name 'wait_for_window' -Arguments @{ title = 'Windows Computer Use Dialog'; owner_window_id = $windowId; state = 'exists'; timeout_ms = 5000 }
+    if (-not $dialogWait.matched -or $dialogWait.count -ne 1 -or $dialogWait.windows[0].ownerWindowId -ne $windowId -or $dialogWait.windows[0].rootOwnerWindowId -ne $windowId) {
+        throw "Owned transient dialog was not linked to its main window: $($dialogWait | ConvertTo-Json -Depth 8 -Compress)"
+    }
+    $dialogId = [long]$dialogWait.windows[0].id
+    $dialogClose = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $dialogId; automation_id = 'DialogCloseButton'; limit = 2 }
+    if ($dialogClose.count -ne 1) { throw 'Could not uniquely resolve the transient-dialog close button.' }
+    Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $dialogId; control_id = $dialogClose.controls[0].id } | Out-Null
+    $dialogClosed = Invoke-WcuTool -Name 'wait_for_window' -Arguments @{ title = 'Windows Computer Use Dialog'; owner_window_id = $windowId; state = 'absent'; timeout_ms = 5000 }
+    if (-not $dialogClosed.matched) { throw 'Owned transient dialog did not disappear.' }
+
+    $minimized = Invoke-WcuTool -Name 'set_window_state' -Arguments @{ window_id = $windowId; state = 'minimize' }
+    if (-not $minimized.ok -or -not $minimized.window.isMinimized) { throw 'Window did not reach the minimized state.' }
+    $minimizedCaptureRejected = $false
+    try {
+        Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'minimized.*Restore') { $minimizedCaptureRejected = $true } else { throw }
+    }
+    if (-not $minimizedCaptureRejected) { throw 'Minimized capture was not rejected with explicit recovery guidance.' }
+    $restored = Invoke-WcuTool -Name 'set_window_state' -Arguments @{ window_id = $windowId; state = 'restore' }
+    if (-not $restored.ok -or $restored.window.isMinimized -or $restored.window.isMaximized) { throw 'Window did not return to the restored state.' }
     $ended = Invoke-WcuTool -Name 'end_session'
     if (-not $ended.ok) { throw 'Session did not end cleanly.' }
 
@@ -213,6 +239,10 @@ try {
         ocr_backend = $ocr.backend
         ocr_text_length = if ($null -ne $ocr.text) { $ocr.text.Length } else { 0 }
         fresh_ocr_screenshot_bound = [bool]$freshOcr.screenshot_id
+        owned_dialog_linked = $dialogWait.matched
+        transient_dialog_closed = $dialogClosed.matched
+        minimized_capture_rejected = $minimizedCaptureRejected
+        window_state_restored = -not $restored.window.isMinimized
     } | ConvertTo-Json -Depth 6
 } finally {
     if ($null -ne $mcp) {

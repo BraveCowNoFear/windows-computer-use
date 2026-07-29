@@ -5,7 +5,7 @@ namespace WindowsComputerUse.Broker;
 
 public sealed class WindowService
 {
-    public IReadOnlyList<WindowDescriptor> ListWindows()
+    public IReadOnlyList<WindowDescriptor> ListWindows(bool includeUntitled = false)
     {
         var foreground = NativeMethods.GetForegroundWindow();
         var windows = new List<WindowDescriptor>();
@@ -13,9 +13,11 @@ public sealed class WindowService
         {
             if (!NativeMethods.IsWindowVisible(handle)) return true;
             var title = NativeMethods.GetWindowText(handle);
-            if (string.IsNullOrWhiteSpace(title)) return true;
+            if (!includeUntitled && string.IsNullOrWhiteSpace(title)) return true;
             if (!NativeMethods.GetWindowRect(handle, out var rect)) return true;
             var visibleRect = NativeMethods.GetVisibleWindowRect(handle, rect);
+            var owner = NativeMethods.GetWindow(handle, NativeMethods.GwOwner);
+            var rootOwner = NativeMethods.GetRootOwner(handle);
             NativeMethods.GetWindowThreadProcessId(handle, out var rawPid);
             var pid = unchecked((int)rawPid);
             string app = $"process:{pid}";
@@ -39,8 +41,12 @@ public sealed class WindowService
                 path,
                 new RectDto(rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top)),
                 new RectDto(visibleRect.Left, visibleRect.Top, Math.Max(0, visibleRect.Right - visibleRect.Left), Math.Max(0, visibleRect.Bottom - visibleRect.Top)),
+                NativeMethods.GetWindowClass(handle),
+                owner == 0 ? null : owner.ToInt64(),
+                (rootOwner == 0 ? handle : rootOwner).ToInt64(),
                 handle == foreground,
-                NativeMethods.IsIconic(handle)));
+                NativeMethods.IsIconic(handle),
+                NativeMethods.IsZoomed(handle)));
             return true;
         }, 0);
         return windows.OrderByDescending(window => window.IsForeground).ThenBy(window => window.Title).ToArray();
@@ -48,7 +54,7 @@ public sealed class WindowService
 
     public WindowDescriptor Resolve(long id = 0, string? title = null, string? app = null)
     {
-        var candidates = ListWindows().AsEnumerable();
+        var candidates = ListWindows(includeUntitled: id != 0).AsEnumerable();
         if (id != 0) candidates = candidates.Where(window => window.Id == id);
         if (!string.IsNullOrWhiteSpace(title))
             candidates = candidates.Where(window => window.Title?.Contains(title, StringComparison.OrdinalIgnoreCase) == true);
@@ -87,6 +93,33 @@ public sealed class WindowService
         if (NativeMethods.GetForegroundWindow() != handle)
             throw new InvalidOperationException("Windows rejected foreground activation for the requested window.");
         return Resolve(window.Id);
+    }
+
+    public WindowDescriptor SetState(WindowDescriptor window, string state, int timeoutMs = 3000)
+    {
+        var command = state switch
+        {
+            "minimize" => NativeMethods.SwMinimize,
+            "maximize" => NativeMethods.SwMaximize,
+            "restore" => NativeMethods.SwRestore,
+            _ => throw new ArgumentException("state must be minimize, maximize, or restore")
+        };
+        _ = NativeMethods.ShowWindowAsync(new nint(window.Id), command);
+        var deadline = Environment.TickCount64 + Math.Clamp(timeoutMs, 100, 10_000);
+        WindowDescriptor current;
+        do
+        {
+            Thread.Sleep(50);
+            current = Resolve(window.Id);
+            var matched = state switch
+            {
+                "minimize" => current.IsMinimized,
+                "maximize" => current.IsMaximized,
+                _ => !current.IsMinimized && !current.IsMaximized
+            };
+            if (matched) return current;
+        } while (Environment.TickCount64 < deadline);
+        throw new TimeoutException($"Window did not reach the requested {state} state.");
     }
 
     private static void ActivateWithAttachedInput(nint handle)

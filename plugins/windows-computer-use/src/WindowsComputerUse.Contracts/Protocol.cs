@@ -40,8 +40,12 @@ public sealed record WindowDescriptor(
     string? ProcessPath,
     RectDto Bounds,
     RectDto VisibleBounds,
+    string WindowClass,
+    long? OwnerWindowId,
+    long RootOwnerWindowId,
     bool IsForeground,
-    bool IsMinimized);
+    bool IsMinimized,
+    bool IsMaximized);
 
 public sealed record DisplayDescriptor(
     string Id,

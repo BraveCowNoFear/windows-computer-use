@@ -16,7 +16,7 @@ MCP stdout contains only newline-delimited JSON-RPC. Broker diagnostics and MCP 
 
 ## Observation and identity
 
-`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, and a stable selector. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash. Window descriptors expose both GetWindowRect bounds and DWM visible-frame bounds.
+`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, and a stable selector. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash. Window descriptors expose GetWindowRect and DWM visible-frame bounds, native class, immediate owner, owner-chain root, and minimized/maximized state. `wait_for_window` polls those native relationships for transient dialogs without fixed sleeps.
 
 The broker caches the live `AutomationElement`. If it becomes stale, the broker scans the current tree and re-locates by semantic properties. A major navigation should still be followed by a fresh inspection because the application may intentionally replace the entire view.
 
@@ -43,9 +43,10 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 - Input: User32 `SendInput`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard.
 - OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs. Lines/words carry image bounds; `find_text` returns screenshot and screen bounds plus image-relative centers.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
+- Window lifecycle: verified Win32 minimize/maximize/restore plus owner-chain discovery. Visual tools reject minimized targets with explicit restore guidance instead of returning misleading frames.
 
 ## Known gaps
 
 - There is no local visual-language model or template/image matcher yet; OCR plus model-side image reasoning is the visual fallback.
 - Secure desktop and higher-integrity windows require matching Windows privileges.
-- Deterministic, Explorer, Settings, Word, Excel, VS Code/Electron, WeChat, and SolidWorks gates are implemented. The current development machine has one 150%-scaled display, so true multi-monitor/mixed-DPI, remote-desktop, minimized/protected-window, and elevated-process runs remain external matrix items.
+- Deterministic minimized/restore and owned-dialog transitions plus Explorer, Settings, Word, Excel, VS Code/Electron, WeChat, and SolidWorks gates are implemented. The current development machine has one 150%-scaled display, so true multi-monitor/mixed-DPI, remote-desktop, protected-window, and elevated-process runs remain external matrix items.

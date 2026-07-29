@@ -5,7 +5,10 @@ namespace WindowsComputerUse.Broker;
 
 internal static class NativeMethods
 {
+    internal const int SwMinimize = 6;
+    internal const int SwMaximize = 3;
     internal const int SwRestore = 9;
+    internal const uint GwOwner = 4;
     internal const int SmXVirtualScreen = 76;
     internal const int SmYVirtualScreen = 77;
     internal const int SmCxVirtualScreen = 78;
@@ -39,11 +42,21 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsIconic(nint hWnd);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsZoomed(nint hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern nint GetWindow(nint hWnd, uint command);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetWindowTextW(nint hWnd, StringBuilder text, int count);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetWindowTextLengthW(nint hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int GetClassNameW(nint hWnd, StringBuilder className, int maxCount);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -124,6 +137,24 @@ internal static class NativeMethods
         var builder = new StringBuilder(length + 1);
         _ = GetWindowTextW(handle, builder, builder.Capacity);
         return builder.ToString();
+    }
+
+    internal static string GetWindowClass(nint handle)
+    {
+        var builder = new StringBuilder(256);
+        return GetClassNameW(handle, builder, builder.Capacity) > 0 ? builder.ToString() : string.Empty;
+    }
+
+    internal static nint GetRootOwner(nint handle)
+    {
+        var current = handle;
+        for (var depth = 0; depth < 64; depth++)
+        {
+            var owner = GetWindow(current, GwOwner);
+            if (owner == 0 || owner == current) return current;
+            current = owner;
+        }
+        return current;
     }
 
     [StructLayout(LayoutKind.Sequential)]

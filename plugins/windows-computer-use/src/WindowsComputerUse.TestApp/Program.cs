@@ -40,7 +40,7 @@ internal sealed class TestForm : Form
         Name = "TestWindow";
         AccessibleName = "Windows Computer Use Test App";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 230);
+        ClientSize = new Size(520, 285);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
 
@@ -77,12 +77,52 @@ internal sealed class TestForm : Form
             AutoSize = true,
             Location = new Point(30, 132)
         };
+        var openDialog = new Button
+        {
+            Name = "DialogButton",
+            AccessibleName = "Open dialog",
+            Text = "OPEN DIALOG",
+            Location = new Point(30, 174),
+            Size = new Size(150, 38)
+        };
         commit.Click += (_, _) =>
         {
             status.Text = $"Saved: {input.Text}";
             status.AccessibleName = status.Text;
         };
-        Controls.AddRange([heading, input, commit, status]);
+        openDialog.Click += (_, _) => BeginInvoke(new Action(() =>
+        {
+            var dialog = new Form
+            {
+                Text = "Windows Computer Use Dialog",
+                Name = "OwnedDialog",
+                AccessibleName = "Windows Computer Use Dialog",
+                StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(360, 150),
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false
+            };
+            dialog.Controls.Add(new Label
+            {
+                Text = "Owned transient dialog",
+                AccessibleName = "Owned transient dialog",
+                AutoSize = true,
+                Location = new Point(28, 28)
+            });
+            var close = new Button
+            {
+                Name = "DialogCloseButton",
+                AccessibleName = "Close dialog",
+                Text = "CLOSE",
+                Location = new Point(235, 82),
+                Size = new Size(95, 34)
+            };
+            close.Click += (_, _) => dialog.Close();
+            dialog.Controls.Add(close);
+            dialog.Show(this);
+        }));
+        Controls.AddRange([heading, input, commit, status, openDialog]);
         AcceptButton = commit;
     }
 }

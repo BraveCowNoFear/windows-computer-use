@@ -16,9 +16,10 @@
 - 无系统选框的原生 Windows Graphics Capture 窗口 PNG 捕获，并保留 `PrintWindow` 与屏幕复制降级。
 - 以 DWM 可见边界对齐 WGC，并显式支持 `window` / `screen` / `screenshot` 坐标空间，避免不可见缩放边框造成点击偏移。
 - 原生 `Windows.Media.Ocr` 行/词边界、带截图 ID 的新鲜 OCR，以及可直接衔接点击的 `find_text` 文本定位。
+- 窗口 owner/root-owner 关系、用于瞬态弹窗的 `wait_for_window`，以及带验证的最小化/最大化/还原控制。
 - 条件等待代替盲目 sleep；每次动作后自动重新观测验证。
 - 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
-- 20 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
+- 22 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
 - 与 `desktop-control-for-windows` 共用全局 UI 锁协议。
 - 真实 WinForms 端到端测试：MCP 握手、UIA 发现、中文输入、语义 Invoke、状态等待、截图、OCR 与清理。
 
@@ -74,9 +75,9 @@ codex plugin marketplace add .
 
 ## MCP 工具面
 
-20 个工具分别是：`list_windows`、`display_info`、`launch_app`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`find_text`、`click`、`press_key`、`type_text`、`scroll`、`drag`、`activate_window`、`end_session`。
+22 个工具分别是：`list_windows`、`display_info`、`launch_app`、`wait_for_window`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`find_text`、`click`、`press_key`、`type_text`、`scroll`、`drag`、`set_window_state`、`activate_window`、`end_session`。
 
-窗口应使用 `list_windows` 返回的精确 ID；操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID，状态切换后可把旧 `observation_id` 交给 `observe_changes`。确需坐标时先调用 `snapshot` 或 `find_text`，再把其 `screenshot_id` 与 `coordinate_space: "screenshot"` 交给坐标动作；语义/输入动作会让旧截图失效，目标移动、缩放或超过 `max_age_ms` 后 Broker 也会拒绝盲点。旧调用仍默认使用相对窗口的物理像素。
+窗口应使用 `list_windows` 返回的精确 ID；瞬态弹窗用 `wait_for_window` 配合 `owner_window_id` 定位。操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID，状态切换后可把旧 `observation_id` 交给 `observe_changes`。确需坐标时先调用 `snapshot` 或 `find_text`，再把其 `screenshot_id` 与 `coordinate_space: "screenshot"` 交给坐标动作；语义/输入动作会让旧截图失效，目标移动、缩放或超过 `max_age_ms` 后 Broker 也会拒绝盲点。视觉观察前应先还原最小化窗口。旧调用仍默认使用相对窗口的物理像素。
 
 ## 仓库结构
 

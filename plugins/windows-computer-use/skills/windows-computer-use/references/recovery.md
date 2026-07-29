@@ -10,7 +10,7 @@ Use `find_text` when the target has readable text; otherwise snapshot the select
 
 ## Blank window capture
 
-Bring the window forward with `activate_window` and capture again. The capture chain uses Windows Graphics Capture first, then Win32 `PrintWindow` and physical screen copy. Protected video, secure desktop, and some higher-integrity surfaces may remain unavailable.
+If the target is minimized, call `set_window_state` with `restore` first. Otherwise bring it forward with `activate_window` and capture again. The capture chain uses Windows Graphics Capture first, then Win32 `PrintWindow` and physical screen copy. Protected video, secure desktop, and some higher-integrity surfaces may remain unavailable.
 
 ## Input went to the wrong control
 

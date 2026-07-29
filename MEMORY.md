@@ -49,10 +49,17 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Fresh window OCR now returns screenshot id, capture bounds, timestamp, hash, and `coordinate_space=screenshot`. Added `find_text`, making 20 MCP tools; it returns matching OCR line/word image bounds, physical screen bounds, and image-relative centers.
 - E2E enters a new value, locates the large `SAVE` button through OCR, clicks its OCR word center in screenshot space, and verifies the resulting UIA status. This proves the full WGC -> OCR -> coordinate mapping -> SendInput -> UIA verification loop.
 
+### v0.6.0 — transient windows and native state
+
+- Window descriptors now include native class, immediate owner, owner-chain root, and maximized state. `list_windows` can optionally include titleless top-level surfaces.
+- Added `wait_for_window` selectors for title/app/class/process/owner/root-owner and `exists`/`absent` conditions. Added verified `set_window_state` for minimize/maximize/restore, making 22 MCP tools.
+- Visual tools explicitly reject minimized targets and instruct the caller to restore first; they never label an unreliable minimized frame as a successful observation.
+- E2E opens a real owned WinForms dialog asynchronously, proves its owner/root-owner linkage, closes it semantically, waits for absence, minimizes the main window, proves capture rejection, and restores it.
+
 ## Current boundaries and next work
 
 - Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.
-- Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, minimized/protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
+- Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 
 ## Tooling notes

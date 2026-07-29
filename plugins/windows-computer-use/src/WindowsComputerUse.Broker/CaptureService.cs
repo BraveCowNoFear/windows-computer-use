@@ -11,6 +11,8 @@ public sealed class CaptureService
 
     public CaptureResult Capture(WindowDescriptor? window, string? outputPath = null)
     {
+        if (window?.IsMinimized == true)
+            throw new InvalidOperationException("Window is minimized. Restore it with set_window_state before capture, snapshot, OCR, or visual grounding.");
         var requestedBounds = window?.Bounds ?? new RectDto(
             NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen),
             NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen),

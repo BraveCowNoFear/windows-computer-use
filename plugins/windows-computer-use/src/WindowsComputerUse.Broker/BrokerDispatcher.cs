@@ -38,12 +38,13 @@ public sealed class BrokerDispatcher : IDisposable
                 },
                 "list_windows" => new
                 {
-                    windows = _windows.ListWindows(),
+                    windows = _windows.ListWindows(args.Bool("include_untitled")),
                     coordinate_space = "physical-screen-pixels",
                     access_mode = "full-control"
                 },
                 "display_info" => _displays.GetTopology(),
                 "launch_app" => Launch(args),
+                "wait_for_window" => await WaitForWindowAsync(args, cancellationToken),
                 "inspect_window" => Inspect(args),
                 "observe_changes" => ObserveChanges(args),
                 "find_controls" => Find(args),
@@ -59,6 +60,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "type_text" => TypeText(args),
                 "scroll" => Scroll(args),
                 "drag" => Drag(args),
+                "set_window_state" => SetWindowState(args),
                 "activate_window" => Activate(args),
                 "end_session" => EndSession(),
                 _ => throw new NotSupportedException($"Unknown broker method: {method}")
@@ -77,7 +79,7 @@ public sealed class BrokerDispatcher : IDisposable
 
     private static bool NeedsUiLock(string method) => method is
         "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or
-        "click" or "press_key" or "type_text" or "scroll" or "drag" or "activate_window";
+        "click" or "press_key" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
 
     private object Launch(JsonElement args)
     {
@@ -91,6 +93,50 @@ public sealed class BrokerDispatcher : IDisposable
             try { process.WaitForInputIdle(timeout); } catch { Thread.Sleep(Math.Min(timeout, 1000)); }
         }
         return new { ok = true, process_id = process.Id, app };
+    }
+
+    private async Task<object> WaitForWindowAsync(JsonElement args, CancellationToken cancellationToken)
+    {
+        var title = args.String("title");
+        var app = args.String("app");
+        var windowClass = args.String("window_class");
+        var processId = args.Int("process_id");
+        var ownerId = args.Long("owner_window_id");
+        var rootOwnerId = args.Long("root_owner_window_id");
+        if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(app) &&
+            string.IsNullOrWhiteSpace(windowClass) && processId == 0 && ownerId == 0 && rootOwnerId == 0)
+            throw new ArgumentException("wait_for_window requires at least one window selector.");
+        var state = args.String("state")?.ToLowerInvariant() ?? "exists";
+        if (state is not "exists" and not "absent") throw new ArgumentException("state must be exists or absent");
+        var timeoutMs = Math.Clamp(args.Int("timeout_ms", 10_000), 0, 120_000);
+        var pollMs = Math.Clamp(args.Int("poll_ms", 100), 50, 5_000);
+        var includeUntitled = args.Bool("include_untitled") || string.IsNullOrWhiteSpace(title);
+        var started = Environment.TickCount64;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var matches = _windows.ListWindows(includeUntitled).Where(window =>
+                (title is null || window.Title?.Contains(title, StringComparison.OrdinalIgnoreCase) == true) &&
+                (app is null || window.App.Contains(app, StringComparison.OrdinalIgnoreCase) ||
+                    window.ProcessPath?.Contains(app, StringComparison.OrdinalIgnoreCase) == true) &&
+                (windowClass is null || window.WindowClass.Contains(windowClass, StringComparison.OrdinalIgnoreCase)) &&
+                (processId == 0 || window.ProcessId == processId) &&
+                (ownerId == 0 || window.OwnerWindowId == ownerId) &&
+                (rootOwnerId == 0 || window.RootOwnerWindowId == rootOwnerId)).ToArray();
+            var matched = state == "exists" ? matches.Length > 0 : matches.Length == 0;
+            if (matched || Environment.TickCount64 - started >= timeoutMs)
+            {
+                return new
+                {
+                    matched,
+                    state,
+                    elapsed_ms = Environment.TickCount64 - started,
+                    count = matches.Length,
+                    windows = matches
+                };
+            }
+            await Task.Delay(pollMs, cancellationToken);
+        }
     }
 
     private WindowInspection Inspect(JsonElement args)
@@ -338,6 +384,22 @@ public sealed class BrokerDispatcher : IDisposable
         var window = _windows.Activate(_windows.Resolve(args));
         _screenshots.Clear();
         return new { ok = true, window };
+    }
+
+    private object SetWindowState(JsonElement args)
+    {
+        var state = args.String("state")?.ToLowerInvariant()
+            ?? throw new ArgumentException("state is required");
+        var window = _windows.SetState(_windows.Resolve(args), state, args.Int("timeout_ms", 3000));
+        _screenshots.Clear();
+        return new
+        {
+            ok = true,
+            state,
+            backend = "win32-show-window",
+            window,
+            verification = new { verified = true, is_minimized = window.IsMinimized, is_maximized = window.IsMaximized }
+        };
     }
 
     private object EndSession()

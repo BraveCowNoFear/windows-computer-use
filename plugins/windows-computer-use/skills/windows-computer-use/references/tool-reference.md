@@ -10,9 +10,10 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 
 | Tool | Purpose |
 | --- | --- |
-| `list_windows` | Return visible top-level windows, process identity, bounds, foreground, and minimized state. |
+| `list_windows` | Return visible top-level windows, process identity, bounds, class, owner/root-owner links, and state. |
 | `display_info` | Return physical virtual-desktop and per-monitor bounds, work areas, effective DPI, primary flag, and scale. |
 | `launch_app` | Launch an executable, registered app, file, or URI. |
+| `wait_for_window` | Wait for a top-level/owned window to exist or disappear by title, app, class, process, or owner ids. |
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
 | `observe_changes` | Compare against a cached observation id and return only added, removed, or changed controls. |
 | `find_controls` | Filter controls by semantic properties. |
@@ -28,6 +29,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `type_text` | Type arbitrary Unicode into the focused control. |
 | `scroll` | Send vertical and horizontal wheel input at a selected point. |
 | `drag` | Drag between physical points with a configurable duration. |
+| `set_window_state` | Minimize, maximize, or restore one window and verify native state. |
 | `activate_window` | Restore and foreground one exact window. |
 | `end_session` | Clear element caches and end the logical control session. |
 
@@ -36,3 +38,5 @@ Controls include `parentId`, `depth`, and `childCount`. An `observationId` remai
 Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Screenshot coordinates are mapped from the capture's DWM-visible screen origin. A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.
+
+Visual tools reject minimized windows because WGC/PrintWindow output is not dependable in that state. Call `set_window_state` with `restore`, wait for the verified result, and observe again. Use `ownerWindowId`/`rootOwnerWindowId` from `list_windows` or `wait_for_window` to keep transient dialogs associated with the intended main window.

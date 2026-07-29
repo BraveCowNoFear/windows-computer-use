@@ -250,6 +250,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - 三项工具在保留既有前台、原生状态和精确 Win32 边界回读验证的同时，返回新的截图 ID、变化状态与精确差异；边界工具按现有 `ActionResult` 契约将字段放在 `data` 下。
 - 新增独立 `WindowVisual` 场景，没有运行旧窗口套件。Release 构建与定向真实 WGC/MCP 运行共 12.6 秒，验证移动、恢复原边界、最小化和重新激活四条路径均发生可比较变化，42 工具握手正常且会话无输入残留。
 
+### v0.37.0 — 应用启动视觉验证
+
+- `launch_app` 现在纳入共享 UI 锁，在启动前后抓取完整虚拟桌面，并在既有进程 ID/输入就绪等待结果上追加新截图 ID、变化状态和精确差异；Process 句柄会及时释放而不终止目标。
+- 启动画面只表示真实桌面观察，精确窗口就绪仍由返回的进程 ID 配合 `wait_for_window` 判定；`wait_ms=0` 或无界面目标允许视觉不变。
+- 新增独立 `LaunchVisual` 场景，没有运行旧启动或窗口套件。Release 构建与定向真实 WGC/MCP 运行共 15.2 秒，验证第二个真实测试进程、独立顶层窗口和可比较启动变化，随后按 PID 清理，42 工具握手正常且会话无输入残留。
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

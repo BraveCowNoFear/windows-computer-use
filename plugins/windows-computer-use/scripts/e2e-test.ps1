@@ -2,7 +2,7 @@ param(
     [switch]$KeepTestWindow,
     [switch]$KeepArtifacts,
     [switch]$RequireWgc,
-    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual')][string]$Scenario = 'All'
+    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual', 'LaunchVisual')][string]$Scenario = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,6 +15,8 @@ foreach ($requiredPath in @($mcpPath, $brokerPath, $testAppPath)) {
 }
 
 $testApp = $null
+$launchedApp = $null
+$launchedAppId = 0
 $occluder = $null
 $mcp = $null
 $mcpErrorTask = $null
@@ -314,6 +316,39 @@ try {
             restore_bounds_visual = $restoredBounds.data.visual_diff.changed
             minimize_visual = $minimized.visual_diff.changed
             activate_visual = $activated.visual_diff.changed
+            released_keys = $ended.released_keys
+            released_buttons = $ended.released_buttons
+        } | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($Scenario -eq 'LaunchVisual') {
+        $script:stage = 'launch-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one initial launch visual target, found $($target.Count)." }
+
+        $launched = Invoke-WcuTool -Name 'launch_app' -Arguments @{ app = $testAppPath; wait_ms = 1500 }
+        $launchedAppId = [int]$launched.process_id
+        if ($launchedAppId -gt 0) { $launchedApp = Get-Process -Id $launchedAppId -ErrorAction Stop }
+        if (-not $launched.ok -or $launched.process_id -le 0 -or -not $launched.after_screenshot_id -or
+            -not $launched.visual_diff.comparable -or -not $launched.visual_diff.changed) {
+            throw "Application launch omitted changed desktop evidence: $($launched | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $launchedWindow = Invoke-WcuTool -Name 'wait_for_window' -Arguments @{ process_id = [int]$launched.process_id; state = 'exists'; timeout_ms = 1500 }
+        if (-not $launchedWindow.matched -or @($launchedWindow.windows).Count -ne 1 -or
+            [long]$launchedWindow.windows[0].id -eq [long]$target[0].id) {
+            throw 'The launched process did not expose one distinct top-level window.'
+        }
+
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'launch-visual'
+            tools = @($tools.tools).Count
+            launch_visual = $launched.visual_diff.changed
+            launched_process_id = $launched.process_id
+            launched_window_id = $launchedWindow.windows[0].id
             released_keys = $ended.released_keys
             released_buttons = $ended.released_buttons
         } | ConvertTo-Json -Depth 5
@@ -1264,6 +1299,14 @@ try {
         if (-not $mcp.WaitForExit(2000)) { try { $mcp.Kill() } catch {} }
         if ($null -ne $mcpErrorTask) { try { $mcpErrorTask.GetAwaiter().GetResult() | Out-Null } catch {} }
         $mcp.Dispose()
+    }
+    if (-not $KeepTestWindow -and $null -eq $launchedApp -and $launchedAppId -gt 0) {
+        try { $launchedApp = Get-Process -Id $launchedAppId -ErrorAction Stop } catch {}
+    }
+    if (-not $KeepTestWindow -and $null -ne $launchedApp) {
+        try { $launchedApp.CloseMainWindow() | Out-Null } catch {}
+        if (-not $launchedApp.WaitForExit(1500)) { try { $launchedApp.Kill() } catch {} }
+        $launchedApp.Dispose()
     }
     if (-not $KeepTestWindow -and $null -ne $testApp) {
         try { $testApp.CloseMainWindow() | Out-Null } catch {}

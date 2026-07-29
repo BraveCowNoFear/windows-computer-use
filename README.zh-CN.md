@@ -11,7 +11,7 @@
 - 基于 FlaUI 的 UI Automation 3 语义检查：名称、AutomationId、控件类型、坐标、焦点、Value/只读/选择/开关/展开/滚动状态、文档文本与选中文本。
 - 带 parent/depth/child 元数据的层级 UIA、路径稳定控件 ID、失效元素自动重定位，以及基于 observation ID 的增量差异。
 - 语义 `invoke`、显式的 `perform_secondary_action` 聚焦/选择/开关/展开/折叠/滚动动作与 Unicode `enter_text`，失败后降级到原生 SendInput，并自动返回动作前后视觉证据。
-- 物理鼠标位置读取、平滑移动/悬停、五键鼠标点击/拖拽/滚轮、可跨动作保持的鼠标按下/释放、带隐式修饰键与重复时序的组合键、可跟踪的键盘按下/释放、应用启动、窗口激活和虚拟桌面坐标。
+- 物理鼠标位置读取、平滑移动/悬停、五键鼠标点击/拖拽/滚轮、可跨动作保持的鼠标按下/释放、带隐式修饰键与重复时序的组合键、可跟踪的键盘按下/释放、带自动桌面视觉证据的应用启动、窗口激活和虚拟桌面坐标。
 - 物理多屏拓扑：每块显示器的边界、工作区、有效 DPI、主屏标记和缩放百分比。
 - 无系统选框的原生 Windows Graphics Capture 窗口 PNG 捕获，以及完整虚拟桌面屏幕复制；两者都会返回可绑定后续物理输入的新鲜截图 ID。
 - 可操作的 `capture_region` 可按截图 ID 裁剪已观测到的精确像素（含嵌套裁剪），也可新捕获窗口/桌面帧；完整来源身份会一直保留，用于物理输入和区域视觉等待。
@@ -62,6 +62,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scen
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario ClipboardVisual -RequireWgc
 # 只验证新增窗口管理视觉路径：
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario WindowVisual -RequireWgc
+# 只验证新增应用启动视觉路径：
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario LaunchVisual -RequireWgc
 ```
 
 `test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、状态条件等待、键盘保持/隐式修饰键、原始及原子 Ctrl+V/Ctrl+C 往返（含强制粘贴/复制失败后的恢复）、WGC、OCR 与图像模板定位、快照新鲜度和过期坐标拒绝；任一门禁失败都会返回非零退出码。被重定向的 MCP 诊断会异步排空，预期错误再多也不会填满 stderr 管道而让测试死锁。
@@ -107,6 +109,8 @@ codex plugin marketplace add .
 `press_key`、`key_down`、`key_up`、`type_text` 会在每次输入前后抓图，并在保留焦点/持键主验证的同时返回 `data.after_screenshot_id`、`data.visual_changed` 和精确 `data.visual_diff`。窗口模式比较选定窗口；`desktop: true` 直接向当前已有前台焦点发送输入并比较完整虚拟桌面，不会选择或激活目标，因此不能同时传 `window_id`、`title` 或 `app`。目标明确时应优先使用显式窗口模式；只有系统快捷键或已经建立好前台/焦点链时才使用桌面模式。即使 Windows 暂时没有前台窗口，桌面 `key_up` 仍会发送释放以防按键卡死。
 
 `invoke`、`perform_secondary_action` 和 `enter_text` 会保留原有 UIA 重观察验证，同时返回选定窗口的 `data.after_screenshot_id`、`data.visual_changed` 与精确 `data.visual_diff`。如果已完成的语义动作关闭了来源窗口，动作仍按成功返回，并附带新的虚拟桌面截图以及 `comparable=false`、`reason=source-window-unavailable`，让调用方从真实动作后画面继续。
+
+`launch_app` 会像其他桌面修改一样持有共享 UI 锁，在 `wait_ms` 范围内等待初始输入就绪，再返回进程 ID、完整桌面的新 `after_screenshot_id`、`visual_changed` 与精确 `visual_diff`。下一步若要求某个具体顶层窗口就绪，仍应把该进程 ID 交给 `wait_for_window`；画面变化只证明已观察到的桌面发生变化，并不代替窗口条件。
 
 `activate_window`、`set_window_state` 和 `set_window_bounds` 会在 Win32 操作前后抓取完整虚拟桌面，并在保留前台/状态/边界原生验证的同时返回顶层或 `data` 内的新截图 ID 与精确视觉差异。统一桌面坐标系让最小化和几何移动仍可直接比较。边界使用物理虚拟桌面像素，支持左侧/上方显示器的负原点；移动前会还原最小化/最大化窗口，且默认保留现有前台，除非显式传入 `activate: true`。
 

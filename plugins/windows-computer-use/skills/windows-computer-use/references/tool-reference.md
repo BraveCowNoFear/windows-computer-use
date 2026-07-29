@@ -18,7 +18,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `display_info` | Return physical virtual-desktop and per-monitor bounds, work areas, effective DPI, primary flag, and scale. |
 | `pointer_position` | Return the current pointer position in physical virtual-desktop screen pixels. |
 | `window_from_point` | Map a physical point to its actual child HWND/class/title and stable top-level root window without input. |
-| `launch_app` | Launch an executable, registered app, file, or URI. |
+| `launch_app` | Launch an executable, registered app, file, or URI under the UI lock and return whole-desktop visual evidence. |
 | `wait_for_window` | Wait for a top-level/owned window to exist or disappear by title, app, class, process, or owner ids. |
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
 | `observe_changes` | Compare against a cached observation id and return only added, removed, or changed controls. |
@@ -58,6 +58,8 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `end_session` | Release tracked mouse buttons and keys, discard unused clipboard backup ids, clear element caches, and end the logical control session. |
 
 Controls include `parentId`, `depth`, `childCount`, `value`, `isReadOnly`, `isSelected`, `toggleState`, `expandCollapseState`, and horizontal/vertical scroll percentages when their UIA patterns are supported. Window observations also return `focusedControlId`, `documentText`, `selectedText`, and `selectedControlIds`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session; `observe_changes` compares these semantic states as well as identity, layout, focus, and patterns.
+
+`launch_app` is a state-changing open-world tool and acquires the shared UI lock before `Process.Start`. After waiting up to `wait_ms` for initial input idle, it captures the whole virtual desktop and returns `process_id`, `after_screenshot_id`, `visual_changed`, and exact `visual_diff`. Use that process id with `wait_for_window` when a particular window must exist; the frame may legitimately be unchanged when `wait_ms=0` or the target has no visible UI yet.
 
 Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Window screenshot coordinates map from the DWM-visible frame; desktop screenshot coordinates map from the physical virtual-desktop origin, including negative monitor origins. A bound action is rejected before input if the id is unknown/expired, belongs to another target, a window moved/resized, or display topology changed. Semantic and input mutations invalidate older screenshot ids. Every `move_pointer` returns a fresh full-source `after_screenshot_id`; screenshot-bound moves also return top-level `visual_diff`, while unbound/direct moves set it to null. Window click/scroll/drag actions return `window-and-screenshot-reobserve`; desktop-bound actions avoid foreground activation and return `desktop-screenshot-reobserve`; direct screen actions need no selector and return `screen-input-and-desktop-reobserve`. Mouse down/up retain `held-mouse-state` verification and return a fresh `after_screenshot_id`; chain each newest id into the next screenshot-coordinate gesture step.
 

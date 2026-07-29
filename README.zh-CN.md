@@ -66,6 +66,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scen
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario LaunchVisual -RequireWgc
 # 只验证新增自动点击视觉路径：
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario ClickVisual -RequireWgc
+# 只验证新增自动滚轮/拖拽视觉路径：
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario MotionVisual -RequireWgc
 ```
 
 `test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、状态条件等待、键盘保持/隐式修饰键、原始及原子 Ctrl+V/Ctrl+C 往返（含强制粘贴/复制失败后的恢复）、WGC、OCR 与图像模板定位、快照新鲜度和过期坐标拒绝；任一门禁失败都会返回非零退出码。被重定向的 MCP 诊断会异步排空，预期错误再多也不会填满 stderr 管道而让测试死锁。
@@ -94,7 +96,7 @@ codex plugin marketplace add .
 
 窗口应使用 `list_windows` 返回的精确 ID；即使窗口暂时隐藏或无标题，Broker 也会直接按 HWND 恢复描述。如果应用重建 HWND，只有进程 ID、原生窗口类和非空标题仍一致且替代窗口唯一时，旧 ID 才会自动跟随；否则拒绝模糊匹配并要求重新选择。瞬态弹窗用 `wait_for_window` 配合 `owner_window_id` 定位。操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID 和当前状态字段，状态切换后可把旧 `observation_id` 交给 `observe_changes`；需要比主 Invoke 更明确的 UIA 动作时使用 `perform_secondary_action`。确需坐标时，文字用 `find_text`、已知本地图像用可选受控尺度范围的 `find_image`、陌生画面用 `snapshot`，再把返回的 `screenshot_id` 与 `coordinate_space: "screenshot"` 交给坐标动作。`capture`、`ocr`、`find_text`、`find_image` 均支持 `desktop: true`；完整虚拟桌面截图 ID 可直接驱动移动、点击、按下、释放、滚动和拖拽，无需选择或激活窗口，显式 `coordinate_space: "screen"` 也可直接操作整桌面。语义/输入动作会让旧截图失效；目标移动/缩放、显示拓扑变化或超过 `max_age_ms` 后 Broker 会拒绝盲点。窗口级视觉观察前应先还原最小化窗口。旧的选窗调用仍默认使用相对窗口的物理像素。
 
-每次 `move_pointer` 都会让旧截图失效并返回新鲜完整来源 `after_screenshot_id`；绑定截图的悬停还会返回顶层 `visual_diff`。每次 `click` 现在都会返回 `data.visual_diff`：传入截图时复用该权威前帧，未绑定的窗口点击会在激活目标后自动抓取窗口基线，直接屏幕点击则自动抓取完整桌面。绑定截图的 `mouse_down`、`mouse_up`、`scroll` 和自包含 `drag` 也返回等价证据，包含是否可比较、变化数量/比例、最大通道差、精确图像/屏幕总边界和最多 20 个局部区域。把每一步最新 ID 沿 `mouse_down` → `move_pointer` → `mouse_up` 传递，即可在持续跟踪按键状态的同时维持长手势的可信视觉链。来源几何变化时，已执行的输入仍按成功返回，但报告带前后边界的 `comparable=false`。直接屏幕或未绑定截图的移动仍没有可信前帧，因此 `visual_diff=null`，但会返回动作后的新桌面/窗口截图 ID。
+每次 `move_pointer` 都会让旧截图失效并返回新鲜完整来源 `after_screenshot_id`；绑定截图的悬停还会返回顶层 `visual_diff`。每次 `click`、`scroll` 和自包含 `drag` 现在都会返回 `data.visual_diff`：传入截图时复用该权威前帧，未绑定的窗口动作会在激活目标后自动抓取窗口基线，直接屏幕动作则自动抓取完整桌面。绑定截图的 `mouse_down` 和 `mouse_up` 也返回等价证据，包含是否可比较、变化数量/比例、最大通道差、精确图像/屏幕总边界和最多 20 个局部区域。把每一步最新 ID 沿 `mouse_down` → `move_pointer` → `mouse_up` 传递，即可在持续跟踪按键状态的同时维持长手势的可信视觉链。来源几何变化时，已执行的输入仍按成功返回，但报告带前后边界的 `comparable=false`。直接屏幕或未绑定截图的移动仍没有可信前帧，因此 `visual_diff=null`，但会返回动作后的新桌面/窗口截图 ID。
 
 没有可靠语义谓词时，把新鲜窗口或桌面 `screenshot_id` 交给 `wait_for_visual_change`。它会持续捕获同一来源、校验窗口几何或显示拓扑、比较精确 PNG SHA-256，并在匹配或超时后都返回一张新的可操作截图。能用 `wait_for_ui` 时仍应优先使用它，因为动画、时钟、闪烁光标或桌面任意无关像素变化都可能满足精确画面变化。
 

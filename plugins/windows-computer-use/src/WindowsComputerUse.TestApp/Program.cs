@@ -263,6 +263,13 @@ internal sealed class TestForm : Form
             mouseStatus.Text = $"Mouse up: {eventArgs.Button}";
             mouseStatus.AccessibleName = mouseStatus.Text;
         };
+        MouseEventHandler recordMouseWheel = (_, eventArgs) =>
+        {
+            mouseStatus.Text = $"Mouse wheel: {eventArgs.Delta}";
+            mouseStatus.AccessibleName = mouseStatus.Text;
+        };
+        MouseWheel += recordMouseWheel;
+        mouseSurface.MouseWheel += recordMouseWheel;
         mouseSurface.MouseEnter += (_, _) =>
         {
             mouseStatus.Text = "Mouse hover";

@@ -262,6 +262,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - 自动基线只增强动作后验证，不放宽截图 ID 的年龄、目标身份或几何校验；已有 `window-and-screenshot-reobserve`、`desktop-screenshot-reobserve` 与 `screen-input-and-desktop-reobserve` 主策略保持兼容。
 - 新增独立 `ClickVisual` 场景，没有运行旧像素输入套件。Release 构建与定向真实 WGC/MCP 运行共 17.1 秒，验证未绑定窗口 Save 点击和直接屏幕 Toggle 点击均发生可比较变化且语义结果到位，42 工具握手正常且会话无输入残留。
 
+### v0.39.0 — 未绑定滚轮与拖拽自动视觉基线
+
+- `scroll` 与自包含 `drag` 的三类坐标路径现在都返回精确视觉差异：截图 ID 继续作为权威前帧，未绑定窗口动作在激活后自动抓取选定窗口，直接屏幕动作自动比较完整虚拟桌面。
+- 测试应用新增不改布局的滚轮状态反馈。首次定向运行暴露对 Win32 滚轮事件文本精确符号的断言不稳；改为先读取真实事件文本，再要求反向滚轮产生相反状态，产品输入语义未改。
+- `MotionVisual` 最终定向运行耗时 10.1 秒；窗口/屏幕滚轮与窗口/屏幕自包含拖拽四条新路径均发生可比较变化、应用收到相应事件、42 工具握手正常且会话无输入残留。没有运行旧像素套件。
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

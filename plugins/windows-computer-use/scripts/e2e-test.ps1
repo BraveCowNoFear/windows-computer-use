@@ -2,7 +2,7 @@ param(
     [switch]$KeepTestWindow,
     [switch]$KeepArtifacts,
     [switch]$RequireWgc,
-    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual', 'LaunchVisual', 'ClickVisual')][string]$Scenario = 'All'
+    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual', 'LaunchVisual', 'ClickVisual', 'MotionVisual')][string]$Scenario = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -397,6 +397,77 @@ try {
             tools = @($tools.tools).Count
             window_click_visual = $windowClick.data.visual_diff.changed
             screen_click_visual = $screenClick.data.visual_diff.changed
+            released_keys = $ended.released_keys
+            released_buttons = $ended.released_buttons
+        } | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($Scenario -eq 'MotionVisual') {
+        $script:stage = 'motion-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one motion visual target, found $($target.Count)." }
+        $windowId = [long]$target[0].id
+        $surface = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'MouseSurface'; limit = 2 }
+        if ($surface.count -ne 1) { throw 'Could not uniquely resolve the motion visual surface.' }
+        $surfaceBounds = $surface.controls[0].bounds
+        $windowX = [int]$surfaceBounds.x - [int]$target[0].bounds.x + [int]($surfaceBounds.width / 2)
+        $windowY = [int]$surfaceBounds.y - [int]$target[0].bounds.y + [int]($surfaceBounds.height / 2)
+        $screenX = [int]$surfaceBounds.x + [int]($surfaceBounds.width / 2)
+        $screenY = [int]$surfaceBounds.y + [int]($surfaceBounds.height / 2)
+
+        $windowScroll = Invoke-WcuTool -Name 'scroll' -Arguments @{ window_id = $windowId; x = $windowX; y = $windowY; coordinate_space = 'window'; vertical = 1 }
+        if (-not $windowScroll.ok -or -not $windowScroll.verification.verified -or -not $windowScroll.data.after_screenshot_id -or
+            -not $windowScroll.data.visual_diff.comparable -or -not $windowScroll.data.visual_diff.changed) {
+            throw "Unbound window scroll omitted changed visual evidence: $($windowScroll | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $windowScrollWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name_contains = 'Mouse wheel:'; state = 'exists'; timeout_ms = 1500 }
+        if (-not $windowScrollWait.matched) { throw 'Unbound window scroll did not reach the test app.' }
+        $windowWheelName = [string]$windowScrollWait.controls[0].name
+        $expectedScreenWheelName = if ($windowWheelName -eq 'Mouse wheel: 120') { 'Mouse wheel: -120' } else { 'Mouse wheel: 120' }
+
+        $screenScroll = Invoke-WcuTool -Name 'scroll' -Arguments @{ x = $screenX; y = $screenY; coordinate_space = 'screen'; vertical = -1 }
+        if (-not $screenScroll.ok -or -not $screenScroll.verification.verified -or -not $screenScroll.data.after_screenshot_id -or
+            -not $screenScroll.data.visual_diff.comparable -or -not $screenScroll.data.visual_diff.changed) {
+            throw "Direct screen scroll omitted changed desktop evidence: $($screenScroll | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $screenScrollWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $expectedScreenWheelName; state = 'exists'; timeout_ms = 1500 }
+        if (-not $screenScrollWait.matched) { throw 'Direct screen scroll did not reach the test app.' }
+
+        $windowDrag = Invoke-WcuTool -Name 'drag' -Arguments @{
+            window_id = $windowId; from_x = $windowX - 50; from_y = $windowY; to_x = $windowX + 50; to_y = $windowY
+            coordinate_space = 'window'; button = 'right'; duration_ms = 150
+        }
+        if (-not $windowDrag.ok -or -not $windowDrag.verification.verified -or @($windowDrag.data.held_buttons).Count -ne 0 -or
+            -not $windowDrag.data.after_screenshot_id -or -not $windowDrag.data.visual_diff.comparable -or
+            -not $windowDrag.data.visual_diff.changed) {
+            throw "Unbound window drag omitted changed visual evidence: $($windowDrag | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $windowDragWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Right'; state = 'exists'; timeout_ms = 1500 }
+        if (-not $windowDragWait.matched) { throw 'Unbound window drag did not complete in the test app.' }
+
+        $screenDrag = Invoke-WcuTool -Name 'drag' -Arguments @{
+            from_x = $screenX - 50; from_y = $screenY; to_x = $screenX + 50; to_y = $screenY
+            coordinate_space = 'screen'; button = 'middle'; duration_ms = 150
+        }
+        if (-not $screenDrag.ok -or -not $screenDrag.verification.verified -or @($screenDrag.data.held_buttons).Count -ne 0 -or
+            -not $screenDrag.data.after_screenshot_id -or -not $screenDrag.data.visual_diff.comparable -or
+            -not $screenDrag.data.visual_diff.changed) {
+            throw "Direct screen drag omitted changed desktop evidence: $($screenDrag | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $screenDragWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Middle'; state = 'exists'; timeout_ms = 1500 }
+        if (-not $screenDragWait.matched) { throw 'Direct screen drag did not complete in the test app.' }
+
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'motion-visual'
+            tools = @($tools.tools).Count
+            window_scroll_visual = $windowScroll.data.visual_diff.changed
+            screen_scroll_visual = $screenScroll.data.visual_diff.changed
+            window_drag_visual = $windowDrag.data.visual_diff.changed
+            screen_drag_visual = $screenDrag.data.visual_diff.changed
             released_keys = $ended.released_keys
             released_buttons = $ended.released_buttons
         } | ConvertTo-Json -Depth 5

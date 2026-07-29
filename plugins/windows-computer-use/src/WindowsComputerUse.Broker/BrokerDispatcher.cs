@@ -1328,21 +1328,34 @@ public sealed class BrokerDispatcher : IDisposable
         {
             var bounds = VirtualDesktopBounds();
             var screenPoint = (X: args.Int("x", bounds.X + bounds.Width / 2), Y: args.Int("y", bounds.Y + bounds.Height / 2));
-            _input.Scroll(screenPoint.X, screenPoint.Y, args.Int("vertical"), args.Int("horizontal"));
-            _screenshots.Clear();
-            Thread.Sleep(100);
-            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
+            var visual = RunDesktopVisualAction(() =>
+            {
+                _input.Scroll(screenPoint.X, screenPoint.Y, args.Int("vertical"), args.Int("horizontal"));
+                return true;
+            });
             return new ActionResult(
                 true,
                 "scroll",
                 "sendinput",
-                new ActionVerification(true, "screen-input-and-desktop-reobserve", null, screenAfterCapture.Sha256),
-                new { x = screenPoint.X, y = screenPoint.Y, after_screenshot_id = screenAfterCapture.Id });
+                new ActionVerification(true, "screen-input-and-desktop-reobserve", visual.Before.Sha256, visual.After.Sha256),
+                new
+                {
+                    x = screenPoint.X,
+                    y = screenPoint.Y,
+                    after_screenshot_id = visual.After.Id,
+                    visual_changed = visual.Before.Sha256 != visual.After.Sha256,
+                    visual_diff = ActionVisualDiff(visual.Before, visual.After)
+                });
         }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
         var point = ResolvePoint(args, window, beforeCapture, "x", "y", window.Bounds.Width / 2, window.Bounds.Height / 2);
+        if (beforeCapture is null)
+        {
+            var automaticBaseline = RememberCapture(window, _capture.Capture(window));
+            beforeCapture = _screenshots[automaticBaseline.Id];
+        }
         _input.Scroll(point.X, point.Y, args.Int("vertical"), args.Int("horizontal"));
         _screenshots.Clear();
         Thread.Sleep(100);
@@ -1396,22 +1409,37 @@ public sealed class BrokerDispatcher : IDisposable
             var screenFrom = (X: args.Int("from_x"), Y: args.Int("from_y"));
             var screenTo = (X: args.Int("to_x"), Y: args.Int("to_y"));
             var screenButton = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
-            _input.Drag(screenFrom.X, screenFrom.Y, screenTo.X, screenTo.Y, args.Int("duration_ms", 300), screenButton);
-            _screenshots.Clear();
-            Thread.Sleep(100);
-            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
+            var visual = RunDesktopVisualAction(() =>
+            {
+                _input.Drag(screenFrom.X, screenFrom.Y, screenTo.X, screenTo.Y, args.Int("duration_ms", 300), screenButton);
+                return true;
+            });
             return new ActionResult(
                 true,
                 "drag",
                 "sendinput",
-                new ActionVerification(true, "screen-input-and-desktop-reobserve", null, screenAfterCapture.Sha256),
-                new { from = screenFrom, to = screenTo, button = screenButton, held_buttons = _input.HeldMouseButtons, after_screenshot_id = screenAfterCapture.Id });
+                new ActionVerification(true, "screen-input-and-desktop-reobserve", visual.Before.Sha256, visual.After.Sha256),
+                new
+                {
+                    from = screenFrom,
+                    to = screenTo,
+                    button = screenButton,
+                    held_buttons = _input.HeldMouseButtons,
+                    after_screenshot_id = visual.After.Id,
+                    visual_changed = visual.Before.Sha256 != visual.After.Sha256,
+                    visual_diff = ActionVisualDiff(visual.Before, visual.After)
+                });
         }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
         var from = ResolvePoint(args, window, beforeCapture, "from_x", "from_y");
         var to = ResolvePoint(args, window, beforeCapture, "to_x", "to_y");
+        if (beforeCapture is null)
+        {
+            var automaticBaseline = RememberCapture(window, _capture.Capture(window));
+            beforeCapture = _screenshots[automaticBaseline.Id];
+        }
         var button = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
         _input.Drag(from.X, from.Y, to.X, to.Y, args.Int("duration_ms", 300), button);
         _screenshots.Clear();

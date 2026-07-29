@@ -19,7 +19,7 @@
 - 原生 `Windows.Media.Ocr` 行/词边界；`ocr` 与 `find_text` 既可识别缓存中的完整/区域截图精确像素，也可新捕获画面，并让 OCR 到点击全程保持同一截图身份。
 - 本地 PNG/JPEG 模板匹配：可直接搜索缓存中的完整/区域截图精确像素，也可新捕获画面；提供受控 0.25×–4× 多尺度搜索、粗到细采样颜色评分、跨尺度重叠抑制与同帧可操作坐标。
 - 原生 Windows OLE 剪贴板文字读写、覆盖全部可物化直接格式的会话内备份令牌，以及原子 `paste_text`/`copy_text`：真实 Ctrl+V/Ctrl+C、语义选择/Value 校验、剪贴板序列跟踪，在成功或失败后都恢复，并自动返回动作前后视觉证据。
-- 窗口 owner/root-owner 关系、用于瞬态弹窗的 `wait_for_window`，以及带验证的最小化/最大化/还原控制。
+- 窗口 owner/root-owner 关系、用于瞬态弹窗的 `wait_for_window`，以及带原生验证和整桌面视觉证据的激活/最小化/最大化/还原/移动/缩放控制。
 - 状态条件等待代替盲目 sleep：UIA 使用语义谓词，纯像素变化/稳定使用精确 PNG 等待，`compare_screenshots` 则返回同源两帧的变化像素数、精确总边界和 tile 连通局部区域。
 - 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
 - 42 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
@@ -60,6 +60,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scen
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario SemanticVisual -RequireWgc
 # 只验证新增原子剪贴板视觉路径：
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario ClipboardVisual -RequireWgc
+# 只验证新增窗口管理视觉路径：
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario WindowVisual -RequireWgc
 ```
 
 `test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、状态条件等待、键盘保持/隐式修饰键、原始及原子 Ctrl+V/Ctrl+C 往返（含强制粘贴/复制失败后的恢复）、WGC、OCR 与图像模板定位、快照新鲜度和过期坐标拒绝；任一门禁失败都会返回非零退出码。被重定向的 MCP 诊断会异步排空，预期错误再多也不会填满 stderr 管道而让测试死锁。
@@ -105,6 +107,8 @@ codex plugin marketplace add .
 `press_key`、`key_down`、`key_up`、`type_text` 会在每次输入前后抓图，并在保留焦点/持键主验证的同时返回 `data.after_screenshot_id`、`data.visual_changed` 和精确 `data.visual_diff`。窗口模式比较选定窗口；`desktop: true` 直接向当前已有前台焦点发送输入并比较完整虚拟桌面，不会选择或激活目标，因此不能同时传 `window_id`、`title` 或 `app`。目标明确时应优先使用显式窗口模式；只有系统快捷键或已经建立好前台/焦点链时才使用桌面模式。即使 Windows 暂时没有前台窗口，桌面 `key_up` 仍会发送释放以防按键卡死。
 
 `invoke`、`perform_secondary_action` 和 `enter_text` 会保留原有 UIA 重观察验证，同时返回选定窗口的 `data.after_screenshot_id`、`data.visual_changed` 与精确 `data.visual_diff`。如果已完成的语义动作关闭了来源窗口，动作仍按成功返回，并附带新的虚拟桌面截图以及 `comparable=false`、`reason=source-window-unavailable`，让调用方从真实动作后画面继续。
+
+`activate_window`、`set_window_state` 和 `set_window_bounds` 会在 Win32 操作前后抓取完整虚拟桌面，并在保留前台/状态/边界原生验证的同时返回顶层或 `data` 内的新截图 ID 与精确视觉差异。统一桌面坐标系让最小化和几何移动仍可直接比较。边界使用物理虚拟桌面像素，支持左侧/上方显示器的负原点；移动前会还原最小化/最大化窗口，且默认保留现有前台，除非显式传入 `activate: true`。
 
 仅为传递文本临时借用剪贴板时，优先调用 `paste_text`/`copy_text`：前者替换或追加并等待 UIA Value，后者沿用当前选择或全选、等待真实剪贴板序列变化；未发布或复制结果与可观测 UIA 选区不一致时，最多语义重聚焦重试一次。两者都保存全部直接格式，并在成功或失败后恢复，同时在不削弱剪贴板/UIA 主验证的前提下返回 `data.after_screenshot_id`、`data.visual_changed` 与精确 `data.visual_diff`。发布/恢复可容忍最长十秒的外部剪贴板占用竞争。只有任务需要让剪贴板状态跨越多个动作时，才手工组合 `write_clipboard_text` 与 `restore_clipboard`。备份仅存在于当前 Broker 会话；遇到无法安全物化的格式时会在改写前失败。
 

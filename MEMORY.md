@@ -244,6 +244,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - 两项工具在原有返回数据上追加新的 `data.after_screenshot_id`、`data.visual_changed` 与精确 `data.visual_diff`，从而让原子文本传递也能直接续接动作后画面。
 - 新增独立 `ClipboardVisual` 场景，没有运行旧剪贴板失败矩阵或其他场景。Release 构建与定向真实 WGC/MCP 运行共 15.6 秒，验证粘贴与全选复制均发生可比较视觉变化、剪贴板恢复为真、42 工具握手正常且会话无输入残留。
 
+### v0.36.0 — 窗口管理动作视觉验证
+
+- `activate_window`、`set_window_state` 与 `set_window_bounds` 现在以完整虚拟桌面作为动作前后视觉来源；激活、层级、最小化和几何变化因此共享稳定物理坐标系。
+- 三项工具在保留既有前台、原生状态和精确 Win32 边界回读验证的同时，返回新的截图 ID、变化状态与精确差异；边界工具按现有 `ActionResult` 契约将字段放在 `data` 下。
+- 新增独立 `WindowVisual` 场景，没有运行旧窗口套件。Release 构建与定向真实 WGC/MCP 运行共 12.6 秒，验证移动、恢复原边界、最小化和重新激活四条路径均发生可比较变化，42 工具握手正常且会话无输入残留。
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

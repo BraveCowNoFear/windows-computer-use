@@ -2,7 +2,7 @@ param(
     [switch]$KeepTestWindow,
     [switch]$KeepArtifacts,
     [switch]$RequireWgc,
-    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual')][string]$Scenario = 'All'
+    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual')][string]$Scenario = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -261,6 +261,59 @@ try {
             paste_visual = $pasted.data.visual_diff.changed
             copy_visual = $copied.data.visual_diff.changed
             clipboard_restored = $pasted.data.clipboard_restored -and $copied.data.clipboard_restored
+            released_keys = $ended.released_keys
+            released_buttons = $ended.released_buttons
+        } | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($Scenario -eq 'WindowVisual') {
+        $script:stage = 'window-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one window visual target, found $($target.Count)." }
+        $windowId = [long]$target[0].id
+        $original = $target[0].bounds
+        $displayInfo = Invoke-WcuTool -Name 'display_info'
+        $desktop = $displayInfo.virtualDesktop
+        $moveX = [int]$original.x + 32
+        if ($moveX + [int]$original.width -gt [int]$desktop.x + [int]$desktop.width) { $moveX = [int]$original.x - 32 }
+        $moveY = [int]$original.y + 24
+        if ($moveY + [int]$original.height -gt [int]$desktop.y + [int]$desktop.height) { $moveY = [int]$original.y - 24 }
+
+        $moved = Invoke-WcuTool -Name 'set_window_bounds' -Arguments @{ window_id = $windowId; x = $moveX; y = $moveY; width = [int]$original.width; height = [int]$original.height }
+        if (-not $moved.ok -or -not $moved.verification.verified -or -not $moved.data.after_screenshot_id -or
+            -not $moved.data.visual_diff.comparable -or -not $moved.data.visual_diff.changed -or
+            $moved.data.window.bounds.x -ne $moveX -or $moved.data.window.bounds.y -ne $moveY) {
+            throw "Window move omitted changed desktop evidence: $($moved | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $restoredBounds = Invoke-WcuTool -Name 'set_window_bounds' -Arguments @{ window_id = $windowId; x = [int]$original.x; y = [int]$original.y; width = [int]$original.width; height = [int]$original.height }
+        if (-not $restoredBounds.data.after_screenshot_id -or -not $restoredBounds.data.visual_diff.comparable -or
+            -not $restoredBounds.data.visual_diff.changed) {
+            throw 'Window bounds restore omitted changed desktop evidence.'
+        }
+
+        $minimized = Invoke-WcuTool -Name 'set_window_state' -Arguments @{ window_id = $windowId; state = 'minimize' }
+        if (-not $minimized.ok -or -not $minimized.verification.verified -or -not $minimized.verification.is_minimized -or
+            -not $minimized.after_screenshot_id -or -not $minimized.visual_diff.comparable -or
+            -not $minimized.visual_diff.changed) {
+            throw "Window minimize omitted changed desktop evidence: $($minimized | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $activated = Invoke-WcuTool -Name 'activate_window' -Arguments @{ window_id = $windowId }
+        if (-not $activated.ok -or -not $activated.window.isForeground -or -not $activated.after_screenshot_id -or
+            -not $activated.visual_diff.comparable -or -not $activated.visual_diff.changed) {
+            throw "Window activation omitted changed desktop evidence: $($activated | ConvertTo-Json -Depth 7 -Compress)"
+        }
+
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'window-visual'
+            tools = @($tools.tools).Count
+            move_visual = $moved.data.visual_diff.changed
+            restore_bounds_visual = $restoredBounds.data.visual_diff.changed
+            minimize_visual = $minimized.visual_diff.changed
+            activate_visual = $activated.visual_diff.changed
             released_keys = $ended.released_keys
             released_buttons = $ended.released_buttons
         } | ConvertTo-Json -Depth 5

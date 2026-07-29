@@ -1460,24 +1460,35 @@ public sealed class BrokerDispatcher : IDisposable
 
     private object Activate(JsonElement args)
     {
-        var window = _windows.Activate(_windows.Resolve(args));
-        _screenshots.Clear();
-        return new { ok = true, window };
+        var resolved = _windows.Resolve(args);
+        var visual = RunDesktopVisualAction(() => _windows.Activate(resolved));
+        return new
+        {
+            ok = true,
+            window = visual.Result,
+            after_screenshot_id = visual.After.Id,
+            visual_changed = visual.Before.Sha256 != visual.After.Sha256,
+            visual_diff = ActionVisualDiff(visual.Before, visual.After)
+        };
     }
 
     private object SetWindowState(JsonElement args)
     {
         var state = args.String("state")?.ToLowerInvariant()
             ?? throw new ArgumentException("state is required");
-        var window = _windows.SetState(_windows.Resolve(args), state, args.Int("timeout_ms", 3000));
-        _screenshots.Clear();
+        var resolved = _windows.Resolve(args);
+        var visual = RunDesktopVisualAction(() => _windows.SetState(resolved, state, args.Int("timeout_ms", 3000)));
+        var window = visual.Result;
         return new
         {
             ok = true,
             state,
             backend = "win32-show-window",
             window,
-            verification = new { verified = true, is_minimized = window.IsMinimized, is_maximized = window.IsMaximized }
+            verification = new { verified = true, is_minimized = window.IsMinimized, is_maximized = window.IsMaximized },
+            after_screenshot_id = visual.After.Id,
+            visual_changed = visual.Before.Sha256 != visual.After.Sha256,
+            visual_diff = ActionVisualDiff(visual.Before, visual.After)
         };
     }
 
@@ -1486,14 +1497,42 @@ public sealed class BrokerDispatcher : IDisposable
         var before = _windows.Resolve(args);
         var requested = new RectDto(args.Int("x"), args.Int("y"), args.Int("width"), args.Int("height"));
         var activate = args.Bool("activate");
-        var after = _windows.SetBounds(before, requested, activate, args.Int("timeout_ms", 3000));
-        _screenshots.Clear();
+        var visual = RunDesktopVisualAction(() => _windows.SetBounds(before, requested, activate, args.Int("timeout_ms", 3000)));
+        var after = visual.Result;
         return new ActionResult(
             true,
             "set_window_bounds",
             "win32-set-window-pos",
             new ActionVerification(true, "exact-physical-window-bounds", $"{before.Bounds.X},{before.Bounds.Y},{before.Bounds.Width},{before.Bounds.Height}", $"{after.Bounds.X},{after.Bounds.Y},{after.Bounds.Width},{after.Bounds.Height}"),
-            new { requested, window = after, activate, coordinate_space = "physical-screen-pixels" });
+            new
+            {
+                requested,
+                window = after,
+                activate,
+                coordinate_space = "physical-screen-pixels",
+                after_screenshot_id = visual.After.Id,
+                visual_changed = visual.Before.Sha256 != visual.After.Sha256,
+                visual_diff = ActionVisualDiff(visual.Before, visual.After)
+            });
+    }
+
+    private (T Result, ScreenshotRecord Before, CaptureResult After) RunDesktopVisualAction<T>(Func<T> action)
+    {
+        var baselineCapture = RememberCapture(null, _capture.Capture(null));
+        var baseline = _screenshots[baselineCapture.Id];
+        try
+        {
+            var result = action();
+            _screenshots.Clear();
+            Thread.Sleep(100);
+            var after = RememberCapture(null, _capture.Capture(null));
+            return (result, baseline, after);
+        }
+        catch
+        {
+            _screenshots.Clear();
+            throw;
+        }
     }
 
     private object EndSession()

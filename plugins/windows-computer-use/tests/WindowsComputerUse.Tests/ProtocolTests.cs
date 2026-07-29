@@ -10,12 +10,13 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(17, ToolCatalog.All.Count);
+        Assert.Equal(18, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("inspect_window", json);
         Assert.Contains("snapshot", json);
+        Assert.Contains("observe_changes", json);
         Assert.Contains("end_session", json);
     }
 

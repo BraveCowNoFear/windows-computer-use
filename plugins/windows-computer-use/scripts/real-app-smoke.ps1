@@ -64,6 +64,15 @@ function Test-WcuWindow {
     $capture = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $id; path = $capturePath }
     $captureMeta = $capture.content[0].text | ConvertFrom-Json
     $ocr = Invoke-WcuTool -Name 'ocr' -Arguments @{ path = $capturePath }
+    if (-not $ocr.ok -or [string]::IsNullOrWhiteSpace([string]$ocr.text)) {
+        Start-Sleep -Milliseconds 300
+        $capture = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $id; path = $capturePath }
+        $captureMeta = $capture.content[0].text | ConvertFrom-Json
+        $ocr = Invoke-WcuTool -Name 'ocr' -Arguments @{ path = $capturePath }
+    }
+    if (-not $ocr.ok -or [string]::IsNullOrWhiteSpace([string]$ocr.text)) {
+        throw "$Label OCR failed after one fresh-capture retry: $($ocr.error)"
+    }
     $closeState = 'not-requested'
     if ($CloseAfter) {
         $current = @(Get-WcuWindows | Where-Object { [long]$_.id -eq $id -and [string]$_.title -eq $lease.title })
@@ -121,6 +130,7 @@ try {
     $start.CreateNoWindow = $true
     $start.EnvironmentVariables['WCU_BROKER_PATH'] = $brokerPath
     $start.EnvironmentVariables['WCU_PLUGIN_ROOT'] = $pluginRoot
+    $start.EnvironmentVariables['WCU_REQUIRE_WGC'] = '1'
     $mcp = [System.Diagnostics.Process]::new()
     $mcp.StartInfo = $start
     if (-not $mcp.Start()) { throw 'Could not start MCP process.' }

@@ -16,7 +16,7 @@ MCP stdout contains only newline-delimited JSON-RPC. Broker diagnostics and MCP 
 
 ## Observation and identity
 
-`inspect_window` resolves an exact Win32 HWND and asks UIA3 for the root plus descendants. Every descriptor includes semantic properties, patterns, physical bounds, and a stable selector. The public control id hashes window id, AutomationId, control type, name, class, and duplicate ordinal. `snapshot` returns that semantic observation together with one fresh image, screenshot id, capture time, and content hash.
+`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, and a stable selector. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash.
 
 The broker caches the live `AutomationElement`. If it becomes stale, the broker scans the current tree and re-locates by semantic properties. A major navigation should still be followed by a fresh inspection because the application may intentionally replace the entire view.
 
@@ -27,7 +27,7 @@ State-changing actions run as:
 1. Resolve exactly one window.
 2. Acquire the shared `codex-ui-control.lock.json` lock.
 3. Restore and activate the target window.
-4. Resolve the semantic control or physical point. Coordinate actions may bind to a screenshot id; moved, resized, unknown, or expired observations are rejected.
+4. Resolve the semantic control or physical point. Coordinate actions may bind to a screenshot id; semantic/input mutations invalidate older screenshots, and moved, resized, unknown, or expired observations are rejected.
 5. Use UIA3 Pattern first, then SendInput fallback.
 6. Wait a short settling interval or the explicit `wait_for_ui` condition.
 7. Re-observe the control or window and return verification metadata. Pixel actions capture a post-action frame and return its id/hash for visual-difference inspection.

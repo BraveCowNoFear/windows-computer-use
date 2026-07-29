@@ -9,14 +9,14 @@
 ## 当前已实现
 
 - 基于 FlaUI 的 UI Automation 3 语义检查：名称、AutomationId、控件类型、坐标、状态、Pattern 与焦点。
-- 会话内稳定控件 ID；UIA 元素失效后会按语义选择器自动重新定位。
+- 带 parent/depth/child 元数据的层级 UIA、路径稳定控件 ID、失效元素自动重定位，以及基于 observation ID 的增量差异。
 - 语义 `invoke` 与 Unicode `enter_text`，失败后降级到原生 SendInput。
 - 物理像素点击、拖拽、滚轮、组合键、应用启动、窗口激活和虚拟桌面坐标。
 - 无系统选框的原生 Windows Graphics Capture 窗口 PNG 捕获，并保留 `PrintWindow` 与屏幕复制降级。
 - 使用已安装 Windows 语言包的原生 `Windows.Media.Ocr`。
 - 条件等待代替盲目 sleep；每次动作后自动重新观测验证。
 - 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
-- 17 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
+- 18 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
 - 与 `desktop-control-for-windows` 共用全局 UI 锁协议。
 - 真实 WinForms 端到端测试：MCP 握手、UIA 发现、中文输入、语义 Invoke、状态等待、截图、OCR 与清理。
 
@@ -50,7 +50,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` 会还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证 WGC、快照新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
+`test.ps1` 会还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/增量差异、WGC、快照失效与新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
 
 构建后还可运行 `scripts/real-app-smoke.ps1` 做非破坏性真实应用兼容测试：它会打开隔离的记事本、资源管理器和设置窗口，完成 UIA/截图/OCR，并且只关闭测试前不存在的窗口 ID。
 
@@ -70,9 +70,9 @@ codex plugin marketplace add .
 
 ## MCP 工具面
 
-17 个工具分别是：`list_windows`、`launch_app`、`inspect_window`、`find_controls`、`invoke`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`click`、`press_key`、`type_text`、`scroll`、`drag`、`activate_window`、`end_session`。
+18 个工具分别是：`list_windows`、`launch_app`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`click`、`press_key`、`type_text`、`scroll`、`drag`、`activate_window`、`end_session`。
 
-窗口应使用 `list_windows` 返回的精确 ID；操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID。确需坐标时先调用 `snapshot`，再把它的 `screenshot_id` 交给坐标动作；目标移动、缩放或超过 `max_age_ms` 后 Broker 会拒绝盲点。坐标统一为物理像素，默认相对目标窗口。
+窗口应使用 `list_windows` 返回的精确 ID；操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID，状态切换后可把旧 `observation_id` 交给 `observe_changes`。确需坐标时先调用 `snapshot`，再把它的 `screenshot_id` 交给坐标动作；语义/输入动作会让旧截图失效，目标移动、缩放或超过 `max_age_ms` 后 Broker 也会拒绝盲点。坐标统一为物理像素，默认相对目标窗口。
 
 ## 仓库结构
 

@@ -24,26 +24,42 @@ public sealed class UiaService : IDisposable
     {
         limit = Math.Clamp(limit, 1, 2000);
         var root = _automation.FromHandle(new nint(window.Id));
-        var all = new List<AutomationElement> { root };
-        try { all.AddRange(root.FindAllDescendants().Take(limit - 1)); } catch { }
-
-        var controls = new List<ControlDescriptor>(all.Count);
-        var duplicateKeys = new Dictionary<string, int>(StringComparer.Ordinal);
+        var controls = new List<ControlDescriptor>(Math.Min(limit, 400));
+        var rootSegment = new LocatorSegment(string.Empty, "WindowRoot", string.Empty, string.Empty, 0);
+        var pending = new Queue<PendingElement>();
+        pending.Enqueue(new PendingElement(root, null, 0, [rootSegment]));
         string? focused = null;
-        foreach (var element in all.Take(limit))
+        while (pending.Count > 0 && controls.Count < limit)
         {
-            var baseKey = SelectorKey(element);
-            duplicateKeys.TryGetValue(baseKey, out var duplicateIndex);
-            duplicateKeys[baseKey] = duplicateIndex + 1;
-            var descriptor = Describe(element, controls.Count, window.Id, duplicateIndex);
+            var current = pending.Dequeue();
+            var children = FindChildren(current.Element);
+            var parentId = current.ParentIndex is null ? null : controls[current.ParentIndex.Value].Id;
+            var descriptor = Describe(
+                current.Element,
+                controls.Count,
+                window.Id,
+                parentId,
+                current.Depth,
+                children.Length,
+                current.Path);
             controls.Add(descriptor);
             if (descriptor.HasKeyboardFocus) focused = descriptor.Id;
+
+            var duplicateKeys = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var child in children)
+            {
+                var baseKey = SelectorKey(child);
+                duplicateKeys.TryGetValue(baseKey, out var ordinal);
+                duplicateKeys[baseKey] = ordinal + 1;
+                var path = current.Path.Concat([Segment(child, ordinal)]).ToArray();
+                pending.Enqueue(new PendingElement(child, descriptor.Index, current.Depth + 1, path));
+            }
         }
 
         var tree = string.Join(Environment.NewLine, controls.Select(control =>
-            $"[{control.Index}] {control.ControlType} name=\"{Escape(control.Name)}\" automationId=\"{Escape(control.AutomationId)}\" " +
+            $"{new string(' ', control.Depth * 2)}[{control.Index}] {control.ControlType} name=\"{Escape(control.Name)}\" automationId=\"{Escape(control.AutomationId)}\" " +
             $"id={control.Id} bounds=({control.Bounds.X},{control.Bounds.Y},{control.Bounds.Width},{control.Bounds.Height}) " +
-            $"enabled={control.IsEnabled.ToString().ToLowerInvariant()} patterns=[{string.Join(',', control.Patterns)}]"));
+            $"enabled={control.IsEnabled.ToString().ToLowerInvariant()} children={control.ChildCount} patterns=[{string.Join(',', control.Patterns)}]"));
         return new WindowInspection(
             window,
             $"obs-{Guid.NewGuid():N}",
@@ -149,7 +165,10 @@ public sealed class UiaService : IDisposable
         {
             var afterElement = Resolve(window, controlId, query);
             var after = Summary(afterElement);
-            var descriptor = Describe(afterElement, 0, window.Id, 0);
+            var path = _elements.Values.FirstOrDefault(locator => ReferenceEquals(locator.Element, afterElement))?.Path
+                ?? [Segment(afterElement, 0)];
+            var parentId = path.Count > 1 ? IdFor(window.Id, path.Take(path.Count - 1)) : null;
+            var descriptor = Describe(afterElement, 0, window.Id, parentId, path.Count - 1, FindChildren(afterElement).Length, path);
             return new ActionResult(true, action, backend,
                 new ActionVerification(true, "uia3-reobserve", before, after, descriptor.Id), descriptor);
         }
@@ -190,16 +209,25 @@ public sealed class UiaService : IDisposable
 
     private AutomationElement? FindByLocator(WindowDescriptor window, ElementLocator locator)
     {
-        var root = _automation.FromHandle(new nint(window.Id));
-        AutomationElement[] candidates;
-        try { candidates = root.FindAllDescendants(); } catch { return null; }
-        return candidates.FirstOrDefault(element =>
-            string.Equals(Safe(() => element.AutomationId, ""), locator.AutomationId, StringComparison.Ordinal) &&
-            string.Equals(Safe(() => element.Name, ""), locator.Name, StringComparison.Ordinal) &&
-            string.Equals(Safe(() => element.ControlType.ToString(), ""), locator.ControlType, StringComparison.Ordinal));
+        if (window.Id != locator.WindowId || locator.Path.Count == 0) return null;
+        var current = _automation.FromHandle(new nint(window.Id));
+        foreach (var segment in locator.Path.Skip(1))
+        {
+            var matches = FindChildren(current).Where(element => SegmentMatches(element, segment)).ToArray();
+            if (segment.Ordinal < 0 || segment.Ordinal >= matches.Length) return null;
+            current = matches[segment.Ordinal];
+        }
+        return current;
     }
 
-    private ControlDescriptor Describe(AutomationElement element, int index, long windowId, int duplicateIndex)
+    private ControlDescriptor Describe(
+        AutomationElement element,
+        int index,
+        long windowId,
+        string? parentId,
+        int depth,
+        int childCount,
+        IReadOnlyList<LocatorSegment> path)
     {
         var name = Safe(() => element.Name ?? "", "");
         var automationId = Safe(() => element.AutomationId ?? "", "");
@@ -209,17 +237,17 @@ public sealed class UiaService : IDisposable
         var bounds = new RectDto(
             rectangle.X, rectangle.Y,
             Math.Max(0, rectangle.Width), Math.Max(0, rectangle.Height));
-        var selector = $"window={windowId};automationId={automationId};type={controlType};name={name};class={className};ordinal={duplicateIndex}";
-        var id = $"wc-{windowId:x}-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(selector)))[..16].ToLowerInvariant()}";
+        var selector = SelectorFor(windowId, path);
+        var id = IdFor(windowId, path);
         var patterns = GetPatterns(element);
         var descriptor = new ControlDescriptor(
-            id, index, name, automationId, controlType, className, bounds,
+            id, index, parentId, depth, childCount, name, automationId, controlType, className, bounds,
             Safe(() => element.IsEnabled, false),
             Safe(() => element.IsOffscreen, true),
             Safe(() => element.Properties.HasKeyboardFocus.ValueOrDefault, false),
             patterns,
             selector);
-        _elements[id] = new ElementLocator(windowId, name, automationId, controlType, className, duplicateIndex, element);
+        _elements[id] = new ElementLocator(windowId, path, element);
         return descriptor;
     }
 
@@ -241,11 +269,52 @@ public sealed class UiaService : IDisposable
         try { if (supported()) target.Add(name); } catch { }
     }
 
-    private static string SelectorKey(AutomationElement element) => string.Join('|',
-        Safe(() => element.AutomationId ?? "", ""),
-        Safe(() => element.ControlType.ToString() ?? "", ""),
-        Safe(() => element.Name ?? "", ""),
-        Safe(() => element.ClassName ?? "", ""));
+    private static AutomationElement[] FindChildren(AutomationElement element)
+    {
+        try { return element.FindAllChildren(); } catch { return []; }
+    }
+
+    private static LocatorSegment Segment(AutomationElement element, int ordinal)
+    {
+        var automationId = Safe(() => element.AutomationId ?? "", "");
+        return new LocatorSegment(
+            automationId,
+            Safe(() => element.ControlType.ToString() ?? "Unknown", "Unknown"),
+            automationId.Length == 0 ? Safe(() => element.Name ?? "", "") : string.Empty,
+            Safe(() => element.ClassName ?? "", ""),
+            ordinal);
+    }
+
+    private static bool SegmentMatches(AutomationElement element, LocatorSegment segment)
+    {
+        var candidate = Segment(element, 0);
+        return string.Equals(candidate.AutomationId, segment.AutomationId, StringComparison.Ordinal) &&
+               string.Equals(candidate.ControlType, segment.ControlType, StringComparison.Ordinal) &&
+               string.Equals(candidate.Name, segment.Name, StringComparison.Ordinal) &&
+               string.Equals(candidate.ClassName, segment.ClassName, StringComparison.Ordinal);
+    }
+
+    private static string SelectorKey(AutomationElement element)
+    {
+        var segment = Segment(element, 0);
+        return string.Join('|', segment.AutomationId, segment.ControlType, segment.Name, segment.ClassName);
+    }
+
+    private static string ToSelector(LocatorSegment segment) => string.Join(';',
+        $"automationId={Uri.EscapeDataString(segment.AutomationId)}",
+        $"type={Uri.EscapeDataString(segment.ControlType)}",
+        $"name={Uri.EscapeDataString(segment.Name)}",
+        $"class={Uri.EscapeDataString(segment.ClassName)}",
+        $"ordinal={segment.Ordinal}");
+
+    private static string SelectorFor(long windowId, IEnumerable<LocatorSegment> path) =>
+        $"window={windowId};path={string.Join('>', path.Select(ToSelector))}";
+
+    private static string IdFor(long windowId, IEnumerable<LocatorSegment> path)
+    {
+        var selector = SelectorFor(windowId, path);
+        return $"wc-{windowId:x}-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(selector)))[..16].ToLowerInvariant()}";
+    }
 
     private static string Summary(AutomationElement element)
     {
@@ -260,12 +329,21 @@ public sealed class UiaService : IDisposable
 
     private static string Escape(string? value) => (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", " ").Replace("\n", " ");
 
-    private sealed record ElementLocator(
-        long WindowId,
-        string Name,
+    private sealed record PendingElement(
+        AutomationElement Element,
+        int? ParentIndex,
+        int Depth,
+        IReadOnlyList<LocatorSegment> Path);
+
+    private sealed record LocatorSegment(
         string AutomationId,
         string ControlType,
+        string Name,
         string ClassName,
-        int Ordinal,
+        int Ordinal);
+
+    private sealed record ElementLocator(
+        long WindowId,
+        IReadOnlyList<LocatorSegment> Path,
         AutomationElement Element);
 }

@@ -13,6 +13,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `list_windows` | Return visible top-level windows, process identity, bounds, foreground, and minimized state. |
 | `launch_app` | Launch an executable, registered app, file, or URI. |
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
+| `observe_changes` | Compare against a cached observation id and return only added, removed, or changed controls. |
 | `find_controls` | Filter controls by semantic properties. |
 | `invoke` | Invoke, select, toggle, expand, or center-click one semantic control. |
 | `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput. |
@@ -28,6 +29,8 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `activate_window` | Restore and foreground one exact window. |
 | `end_session` | Clear element caches and end the logical control session. |
 
-Coordinate tools accept `screenshot_id` and `max_age_ms` (default 15000). A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
+Controls include `parentId`, `depth`, and `childCount`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session.
+
+Coordinate tools accept `screenshot_id` and `max_age_ms` (default 15000). A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.

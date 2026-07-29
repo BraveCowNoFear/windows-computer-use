@@ -27,10 +27,17 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - E2E hard-gates WGC, an occluded target window, snapshot metadata, stale screenshot rejection, Unicode UIA text, semantic invoke, wait, OCR, MCP cold launch, cleanup, and zero leftover screenshots/UI locks.
 - Real-app smoke verified WGC + UIA + OCR on File Explorer (124 controls) and Settings (157 controls) while preserving the user's existing Notepad window.
 
+### v0.3.0 — hierarchical and incremental semantics
+
+- UIA inspection now walks a real hierarchy and returns `parentId`, `depth`, and `childCount`. Stable ids hash the HWND and semantic hierarchy path; AutomationId-backed controls do not churn when their accessible name changes.
+- Added `observe_changes`, making 18 MCP tools. The broker retains 16 semantic observations and returns only added, removed, or changed descriptors relative to an earlier `observation_id`.
+- Semantic invoke/text and physical input invalidate older screenshot ids. E2E proves a changed status label produces one incremental diff and that coordinates tied to the earlier screenshot are rejected.
+- Hierarchical real-app regression passed Explorer (124 controls) and Settings (157-170 controls depending on load timing) with WGC and OCR.
+- The real-app gate now requires WGC and treats empty/failed OCR as failure after one fresh-capture retry; an earlier benchmark incorrectly reported overall success when Settings OCR transiently returned `ok=false`.
+
 ## Current boundaries and next work
 
 - No local visual-language model, image matcher, or OCR bounding-box grounding yet. Image interpretation currently depends on Windows OCR and the calling model.
-- UIA output is a flat indexed tree string plus descriptors; a structured hierarchical/patch representation would reduce tokens and improve incremental reasoning.
 - Broader release benchmarks remain for Office, WeChat, SolidWorks, Electron, remote desktop, multi-monitor, mixed-DPI, minimized/protected windows, and elevated-process boundaries.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 

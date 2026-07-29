@@ -14,6 +14,7 @@ public sealed class BrokerDispatcher : IDisposable
     private readonly AuditLogger _audit = new();
     private readonly string _sessionId = $"session-{Guid.NewGuid():N}";
     private readonly Dictionary<string, ScreenshotRecord> _screenshots = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, WindowInspection> _observations = new(StringComparer.Ordinal);
 
     public BrokerDispatcher() => _uia = new UiaService(_windows, _input);
 
@@ -41,6 +42,7 @@ public sealed class BrokerDispatcher : IDisposable
                 },
                 "launch_app" => Launch(args),
                 "inspect_window" => Inspect(args),
+                "observe_changes" => ObserveChanges(args),
                 "find_controls" => Find(args),
                 "invoke" => Invoke(args),
                 "enter_text" => EnterText(args),
@@ -70,7 +72,7 @@ public sealed class BrokerDispatcher : IDisposable
     public void Dispose() => _uia.Dispose();
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or
         "click" or "press_key" or "type_text" or "scroll" or "drag" or "activate_window";
 
     private object Launch(JsonElement args)
@@ -90,7 +92,35 @@ public sealed class BrokerDispatcher : IDisposable
     private WindowInspection Inspect(JsonElement args)
     {
         var window = _windows.Resolve(args);
-        return _uia.Inspect(window, args.Int("limit", 400));
+        return RememberObservation(_uia.Inspect(window, args.Int("limit", 400)));
+    }
+
+    private WindowDiff ObserveChanges(JsonElement args)
+    {
+        var previousId = args.String("previous_observation_id")
+            ?? throw new ArgumentException("previous_observation_id is required");
+        if (!_observations.TryGetValue(previousId, out var previous))
+            throw new InvalidOperationException("Unknown or expired previous_observation_id. Inspect or snapshot the window again.");
+        var window = _windows.Resolve(args);
+        if (previous.Window.Id != window.Id)
+            throw new InvalidOperationException("The previous observation belongs to a different window.");
+        var current = RememberObservation(_uia.Inspect(window, args.Int("limit", 400)));
+        var beforeById = previous.Controls.ToDictionary(control => control.Id, StringComparer.Ordinal);
+        var afterById = current.Controls.ToDictionary(control => control.Id, StringComparer.Ordinal);
+        var changes = new List<ControlChange>();
+        foreach (var control in previous.Controls)
+        {
+            if (!afterById.TryGetValue(control.Id, out var after))
+                changes.Add(new ControlChange("removed", control.Id, control, null));
+            else if (!Equivalent(control, after))
+                changes.Add(new ControlChange("changed", control.Id, control, after));
+        }
+        foreach (var control in current.Controls)
+        {
+            if (!beforeById.ContainsKey(control.Id))
+                changes.Add(new ControlChange("added", control.Id, null, control));
+        }
+        return new WindowDiff(window, previousId, current.ObservationId, current.CapturedAt, changes, current.FocusedControlId);
     }
 
     private object Find(JsonElement args)
@@ -103,14 +133,16 @@ public sealed class BrokerDispatcher : IDisposable
     private ActionResult Invoke(JsonElement args)
     {
         var window = _windows.Activate(_windows.Resolve(args));
-        return _uia.Invoke(window, args.String("control_id"), args);
+        try { return _uia.Invoke(window, args.String("control_id"), args); }
+        finally { _screenshots.Clear(); }
     }
 
     private ActionResult EnterText(JsonElement args)
     {
         var text = args.String("text") ?? throw new ArgumentException("text is required");
         var window = _windows.Activate(_windows.Resolve(args));
-        return _uia.EnterText(window, args.String("control_id"), args, text, args.Bool("append"));
+        try { return _uia.EnterText(window, args.String("control_id"), args, text, args.Bool("append")); }
+        finally { _screenshots.Clear(); }
     }
 
     private object Wait(JsonElement args)
@@ -129,7 +161,7 @@ public sealed class BrokerDispatcher : IDisposable
     private WindowStateSnapshot Snapshot(JsonElement args)
     {
         var window = _windows.Resolve(args);
-        var inspection = _uia.Inspect(window, args.Int("limit", 400));
+        var inspection = RememberObservation(_uia.Inspect(window, args.Int("limit", 400)));
         var capture = RememberCapture(window, _capture.Capture(window, args.String("path")));
         return new WindowStateSnapshot(inspection, capture);
     }
@@ -156,6 +188,7 @@ public sealed class BrokerDispatcher : IDisposable
         var window = _windows.Activate(resolved);
         var point = _input.WindowPoint(window, args.Int("x"), args.Int("y"), args.Bool("relative", true));
         _input.Click(point.X, point.Y, args.String("button") ?? "left", args.Int("count", 1));
+        _screenshots.Clear();
         Thread.Sleep(100);
         var after = _windows.Resolve(window.Id);
         var afterCapture = RememberCapture(after, _capture.Capture(after));
@@ -182,6 +215,7 @@ public sealed class BrokerDispatcher : IDisposable
         var key = args.String("key") ?? throw new ArgumentException("key is required");
         var window = _windows.Activate(_windows.Resolve(args));
         _input.PressChord(key);
+        _screenshots.Clear();
         Thread.Sleep(60);
         return new ActionResult(true, "press_key", "sendinput", new ActionVerification(true, "foreground-window", window.Id.ToString(), _windows.Resolve(window.Id).IsForeground.ToString()));
     }
@@ -191,6 +225,7 @@ public sealed class BrokerDispatcher : IDisposable
         var text = args.String("text") ?? throw new ArgumentException("text is required");
         var window = _windows.Activate(_windows.Resolve(args));
         _input.TypeText(text);
+        _screenshots.Clear();
         Thread.Sleep(80);
         return new ActionResult(true, "type_text", "sendinput-unicode", new ActionVerification(true, "foreground-window", window.Id.ToString(), _windows.Resolve(window.Id).IsForeground.ToString()));
     }
@@ -202,6 +237,7 @@ public sealed class BrokerDispatcher : IDisposable
         var window = _windows.Activate(resolved);
         var point = _input.WindowPoint(window, args.Int("x", window.Bounds.Width / 2), args.Int("y", window.Bounds.Height / 2), args.Bool("relative", true));
         _input.Scroll(point.X, point.Y, args.Int("vertical"), args.Int("horizontal"));
+        _screenshots.Clear();
         Thread.Sleep(100);
         var after = _windows.Resolve(window.Id);
         var afterCapture = RememberCapture(after, _capture.Capture(after));
@@ -222,6 +258,7 @@ public sealed class BrokerDispatcher : IDisposable
         var from = _input.WindowPoint(window, args.Int("from_x"), args.Int("from_y"), relative);
         var to = _input.WindowPoint(window, args.Int("to_x"), args.Int("to_y"), relative);
         _input.Drag(from.X, from.Y, to.X, to.Y, args.Int("duration_ms", 300));
+        _screenshots.Clear();
         Thread.Sleep(100);
         var after = _windows.Resolve(window.Id);
         var afterCapture = RememberCapture(after, _capture.Capture(after));
@@ -236,6 +273,7 @@ public sealed class BrokerDispatcher : IDisposable
     private object Activate(JsonElement args)
     {
         var window = _windows.Activate(_windows.Resolve(args));
+        _screenshots.Clear();
         return new { ok = true, window };
     }
 
@@ -243,6 +281,7 @@ public sealed class BrokerDispatcher : IDisposable
     {
         _uia.ClearSession();
         _screenshots.Clear();
+        _observations.Clear();
         return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow };
     }
 
@@ -271,6 +310,28 @@ public sealed class BrokerDispatcher : IDisposable
             throw new InvalidOperationException("The screenshot_id is stale. Capture or snapshot the target window again before using pixel coordinates.");
         return screenshot;
     }
+
+    private WindowInspection RememberObservation(WindowInspection inspection)
+    {
+        _observations[inspection.ObservationId] = inspection;
+        while (_observations.Count > 16) _observations.Remove(_observations.First().Key);
+        return inspection;
+    }
+
+    private static bool Equivalent(ControlDescriptor before, ControlDescriptor after) =>
+        before.Id == after.Id &&
+        before.ParentId == after.ParentId &&
+        before.Depth == after.Depth &&
+        before.ChildCount == after.ChildCount &&
+        before.Name == after.Name &&
+        before.AutomationId == after.AutomationId &&
+        before.ControlType == after.ControlType &&
+        before.ClassName == after.ClassName &&
+        before.Bounds == after.Bounds &&
+        before.IsEnabled == after.IsEnabled &&
+        before.IsOffscreen == after.IsOffscreen &&
+        before.HasKeyboardFocus == after.HasKeyboardFocus &&
+        before.Patterns.SequenceEqual(after.Patterns, StringComparer.Ordinal);
 
     private sealed record ScreenshotRecord(long WindowId, RectDto Bounds, DateTimeOffset CapturedAt, string Sha256);
 }

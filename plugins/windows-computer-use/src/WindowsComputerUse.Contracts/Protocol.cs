@@ -45,6 +45,9 @@ public sealed record WindowDescriptor(
 public sealed record ControlDescriptor(
     string Id,
     int Index,
+    string? ParentId,
+    int Depth,
+    int ChildCount,
     string Name,
     string AutomationId,
     string ControlType,
@@ -94,6 +97,20 @@ public sealed record CaptureResult(
 public sealed record WindowStateSnapshot(
     WindowInspection Inspection,
     CaptureResult Capture);
+
+public sealed record ControlChange(
+    string Kind,
+    string Id,
+    ControlDescriptor? Before,
+    ControlDescriptor? After);
+
+public sealed record WindowDiff(
+    WindowDescriptor Window,
+    string PreviousObservationId,
+    string ObservationId,
+    DateTimeOffset CapturedAt,
+    IReadOnlyList<ControlChange> Changes,
+    string? FocusedControlId);
 
 public sealed record ToolDefinition(
     string Name,

@@ -66,7 +66,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 17) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 18) { throw 'MCP tool catalog is incomplete.' }
 
     $windows = Invoke-WcuTool -Name 'list_windows'
     $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
@@ -102,22 +102,45 @@ try {
     if (@($snapshot.content).Count -ne 2 -or $snapshot.content[1].type -ne 'image') { throw 'Snapshot did not return text and image content.' }
     $snapshotMeta = $snapshot.content[0].text | ConvertFrom-Json
     if (@($snapshotMeta.inspection.controls).Count -lt 4) { throw 'Snapshot UIA state is incomplete.' }
+    $rootControl = @($snapshotMeta.inspection.controls | Where-Object { $_.depth -eq 0 })
+    $nestedControls = @($snapshotMeta.inspection.controls | Where-Object { $_.depth -gt 0 -and $_.parentId })
+    if ($rootControl.Count -ne 1 -or $rootControl[0].childCount -lt 1 -or $nestedControls.Count -lt 3) { throw 'Hierarchical UIA relationships are incomplete.' }
     if ($snapshotMeta.capture.sha256 -notmatch '^[0-9a-f]{64}$' -or -not $snapshotMeta.capture.capturedAt) { throw 'Snapshot freshness metadata is incomplete.' }
     if ($RequireWgc -and $snapshotMeta.capture.backend -ne 'windows-graphics-capture') { throw 'Snapshot did not use Windows Graphics Capture.' }
 
-    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $snapshotMeta.capture.id }
-    if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id) {
-        throw 'Screenshot-bound pixel action did not re-observe the window.'
+    $changedText = 'Changed ' + [char]0x72B6 + [char]0x6001
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $changedText } | Out-Null
+    Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $button.controls[0].id } | Out-Null
+    $changedExpected = 'Saved: ' + $changedText
+    $changedWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $changedExpected; state = 'exists'; timeout_ms = 5000 }
+    if (-not $changedWait.matched) { throw 'Second semantic state did not appear.' }
+    $diff = Invoke-WcuTool -Name 'observe_changes' -Arguments @{ window_id = $windowId; previous_observation_id = $snapshotMeta.inspection.observationId; limit = 100 }
+    if (@($diff.changes).Count -lt 1 -or -not $diff.observationId) { throw 'Incremental UIA observation did not report the semantic state change.' }
+
+    $semanticInvalidatedScreenshot = $false
+    try {
+        Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $snapshotMeta.capture.id } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'Unknown or expired') { $semanticInvalidatedScreenshot = $true } else { throw }
     }
+    if (-not $semanticInvalidatedScreenshot) { throw 'A semantic mutation did not invalidate the prior screenshot.' }
+
+    $pixelSnapshot = Invoke-WcuTool -Name 'snapshot' -Arguments @{ window_id = $windowId; limit = 100 }
+    $pixelSnapshotMeta = $pixelSnapshot.content[0].text | ConvertFrom-Json
 
     $staleRejected = $false
     Start-Sleep -Milliseconds 120
     try {
-        Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $snapshotMeta.capture.id; max_age_ms = 100 } | Out-Null
+        Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $pixelSnapshotMeta.capture.id; max_age_ms = 100 } | Out-Null
     } catch {
         if ($_.Exception.Message -match 'stale') { $staleRejected = $true } else { throw }
     }
     if (-not $staleRejected) { throw 'Stale screenshot coordinates were not rejected.' }
+
+    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $pixelSnapshotMeta.capture.id }
+    if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id) {
+        throw 'Screenshot-bound pixel action did not re-observe the window.'
+    }
 
     $occluder = Start-Process -FilePath $testAppPath -ArgumentList '--occluder' -PassThru
     $occluderDeadline = [DateTime]::UtcNow.AddSeconds(5)
@@ -151,6 +174,9 @@ try {
         wait_matched = $waited.matched
         capture_backend = $captureMeta.backend
         snapshot_backend = $snapshotMeta.capture.backend
+        hierarchical_controls = $nestedControls.Count
+        incremental_changes = @($diff.changes).Count
+        semantic_screenshot_invalidation = $semanticInvalidatedScreenshot
         screenshot_bound_action = $pixelClick.verification.strategy
         stale_screenshot_rejected = $staleRejected
         occluded_window_capture = $true

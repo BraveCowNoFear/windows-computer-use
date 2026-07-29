@@ -11,6 +11,8 @@ public static class ToolCatalog
             Props(("app", S("string", "Executable path, app id, file, or URI.")), ("arguments", S("string", "Optional command-line arguments.")), ("wait_ms", S("integer", "Wait for initial UI readiness."))), ["app"]),
         Tool("inspect_window", "Inspect one window through UI Automation 3 and return a semantic control tree with stable control ids.",
             WindowProps(("limit", S("integer", "Maximum UIA elements, default 400.")))),
+        Tool("observe_changes", "Compare a fresh hierarchical UIA observation with a cached observation id and return only added, removed, or changed controls.",
+            WindowProps(("previous_observation_id", S("string", "Observation id from inspect_window or snapshot.")), ("limit", S("integer", "Maximum UIA elements, default 400."))), ["previous_observation_id"]),
         Tool("find_controls", "Find semantic controls by accessible name, AutomationId, control type, class, or enabled state.",
             QueryProps(("limit", S("integer", "Maximum returned controls, default 50.")))),
         Tool("invoke", "Invoke a semantic control. Stale ids are automatically re-resolved; unsupported patterns fall back to a center click.",
@@ -43,7 +45,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "inspect_window" or "find_controls" or "capture" or "snapshot" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

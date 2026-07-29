@@ -14,8 +14,9 @@ Choose the highest reliable layer for each step:
 1. Use an application API or browser DOM when already available.
 2. Use `inspect_window`, `find_controls`, `invoke`, and `enter_text` for UIA3 semantic control.
 3. Use `wait_for_ui` after transitions instead of fixed sleeps.
-4. Use `snapshot` for one atomic UIA + image observation; use `capture` plus `ocr` when semantic metadata is missing or incomplete.
-5. Use `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback.
+4. Use `observe_changes` with the previous `observation_id` when only incremental UIA state is needed.
+5. Use `snapshot` for one atomic UIA + image observation; use `capture` plus `ocr` when semantic metadata is missing or incomplete.
+6. Use `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback.
 
 Do not delegate to a dedicated UI worker. Drive this MCP directly in the active task.
 

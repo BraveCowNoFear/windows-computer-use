@@ -10,7 +10,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(34, ToolCatalog.All.Count);
+        Assert.Equal(35, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -26,6 +26,7 @@ public sealed class ProtocolTests
         Assert.Contains("move_pointer", json);
         Assert.Contains("perform_secondary_action", json);
         Assert.Contains("paste_text", json);
+        Assert.Contains("copy_text", json);
         Assert.Contains("mouse_down", json);
         Assert.Contains("mouse_up", json);
         Assert.Contains("key_down", json);
@@ -63,6 +64,16 @@ public sealed class ProtocolTests
         Assert.Contains("text", pasteSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
         var pasteAnnotations = JsonSerializer.SerializeToElement(paste.Annotations, ProtocolJson.Options);
         Assert.False(pasteAnnotations.GetProperty("readOnlyHint").GetBoolean());
+
+        var copy = Assert.Single(ToolCatalog.All, tool => tool.Name == "copy_text");
+        var copySchema = JsonSerializer.SerializeToElement(copy.InputSchema, ProtocolJson.Options);
+        var copyProperties = copySchema.GetProperty("properties");
+        var selectionValues = copyProperties.GetProperty("selection").GetProperty("enum").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Contains("current", selectionValues);
+        Assert.Contains("all", selectionValues);
+        Assert.True(copyProperties.TryGetProperty("timeout_ms", out _));
+        var copyAnnotations = JsonSerializer.SerializeToElement(copy.Annotations, ProtocolJson.Options);
+        Assert.False(copyAnnotations.GetProperty("readOnlyHint").GetBoolean());
     }
 
     [Fact]

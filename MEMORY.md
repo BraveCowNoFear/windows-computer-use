@@ -121,6 +121,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - The temporary clipboard transaction restores through the same verified path when focus, input, re-observation, or Value verification fails. If restoration itself fails, the MCP error retains the session-local backup id so the caller can explicitly retry rather than losing recovery state.
 - The WinForms fixture adds a deterministic read-only target. Repeated real E2E runs prove atomic replace, `Ctrl+End` append, and an intentional 150 ms Value timeout all restore the pre-test Chromium text/HTML/custom formats; raw clipboard tools and end-session orphan checks remain covered.
 
+### v0.17.0 — atomic verified copy and stable recovery
+
+- Added `copy_text`, making 35 MCP tools. It focuses an exact semantic target, preserves the current selection or sends `Ctrl+A`, seeds a unique clipboard marker, sends real `Ctrl+C`, waits for the native clipboard sequence number to change, returns Unicode text, and compares it with UIA selected text when available.
+- Atomic copy reuses the full-format transaction and returns only after restoration. Restore now requires the original text/formats and `GetClipboardSequenceNumber` to remain unchanged for 150 ms; delayed clipboard publication causes the snapshot to be re-published instead of escaping after success.
+- Three consecutive E2E runs cover select-all copy, current-selection copy, and intentional copy timeout from a non-text button, with the original Chromium text/HTML/custom formats verified after every path. Adding expected-error coverage exposed a harness deadlock: redirected MCP stderr was never read, so broker stack traces filled the pipe. E2E, real-app, and extended-app runners now drain stderr asynchronously.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

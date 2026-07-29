@@ -117,6 +117,9 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern uint SendInput(uint count, Input[] inputs, int size);
 
+    [DllImport("user32.dll")]
+    internal static extern uint GetClipboardSequenceNumber();
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern short VkKeyScanW(char character);
 

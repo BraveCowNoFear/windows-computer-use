@@ -26,7 +26,7 @@ Capture the virtual desktop again. Desktop screenshot ids are invalidated after 
 
 ## Clipboard write or restore failed
 
-If `paste_text` or `write_clipboard_text` cannot materialize an existing direct format, it fails before mutation. Use direct `enter_text`/`type_text`, or explicitly choose `preserve_previous=false` only when replacing the user's clipboard is the intended result. `paste_text` restores after target-action/Value failure; if the restore itself fails, its error includes the still-valid backup id—retry `restore_clipboard` before `end_session`. For a manual write/paste sequence, always restore the saved id in cleanup.
+If `paste_text`, `copy_text`, or `write_clipboard_text` cannot materialize an existing direct format, it fails before mutation. Use direct Unicode input, or explicitly choose `preserve_previous=false` only when replacing the user's clipboard is intended. Atomic paste/copy restores after target-action/verification failure; if restore itself fails, the error includes the still-valid backup id—retry `restore_clipboard` before `end_session`. `copy_text` timeout means Ctrl+C did not publish a new clipboard sequence; establish a real text selection or choose `selection=all` rather than reading the temporary marker.
 
 ## UI lock busy
 

@@ -12,6 +12,7 @@ foreach ($requiredPath in @($mcpPath, $brokerPath, $testAppPath)) {
 $testApp = $null
 $occluder = $null
 $mcp = $null
+$mcpErrorTask = $null
 $capturePath = Join-Path $env:TEMP ("windows-computer-use-e2e-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $visualSourcePath = Join-Path $env:TEMP ("windows-computer-use-visual-source-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $templatePath = Join-Path $env:TEMP ("windows-computer-use-template-{0}.png" -f [guid]::NewGuid().ToString('N'))
@@ -22,6 +23,9 @@ $clipboardRoundtrip = $false
 $atomicPasteRoundtrip = $false
 $atomicPasteAppend = $false
 $atomicPasteFailureRestore = $false
+$atomicCopyAll = $false
+$atomicCopyCurrent = $false
+$atomicCopyFailureRestore = $false
 
 function Invoke-McpRequest {
     param([string]$Method, [hashtable]$Params = @{})
@@ -31,7 +35,7 @@ function Invoke-McpRequest {
     $script:mcp.StandardInput.Flush()
     $line = $script:mcp.StandardOutput.ReadLine()
     if ($null -eq $line) {
-        $stderr = $script:mcp.StandardError.ReadToEnd()
+        $stderr = if ($null -ne $script:mcpErrorTask -and $script:mcpErrorTask.IsCompleted) { $script:mcpErrorTask.GetAwaiter().GetResult() } else { 'MCP stderr is still draining.' }
         throw "MCP process closed before replying. $stderr"
     }
     $response = $line | ConvertFrom-Json
@@ -70,11 +74,12 @@ try {
     $mcp = [System.Diagnostics.Process]::new()
     $mcp.StartInfo = $start
     if (-not $mcp.Start()) { throw 'Could not start MCP process.' }
+    $mcpErrorTask = $mcp.StandardError.ReadToEndAsync()
 
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 34) { throw "Expected 34 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 35) { throw "Expected 35 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -184,6 +189,39 @@ try {
         throw 'Atomic paste failure did not restore the original clipboard state.'
     }
     $atomicPasteFailureRestore = $true
+
+    $expectedCopiedText = $atomicPasteText + $atomicAppendText
+    $copyAll = Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; selection = 'all'; timeout_ms = 2000 }
+    if (-not $copyAll.ok -or -not $copyAll.data.clipboard_restored -or $copyAll.data.text -ne $expectedCopiedText -or $copyAll.verification.strategy -ne 'clipboard-sequence-and-uia-selection') {
+        throw 'Atomic select-all copy did not return the UIA-selected text and restore the clipboard.'
+    }
+    $atomicCopyAll = $true
+    $copyCurrent = Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; selection = 'current'; timeout_ms = 2000 }
+    if (-not $copyCurrent.ok -or -not $copyCurrent.data.clipboard_restored -or $copyCurrent.data.text -ne $expectedCopiedText) {
+        throw 'Atomic current-selection copy did not return the selected text and restore the clipboard.'
+    }
+    $atomicCopyCurrent = $true
+    $afterAtomicCopyClipboard = Invoke-WcuTool -Name 'read_clipboard_text'
+    $missingCopyFormats = @($originalClipboard.formats | Where-Object { @($afterAtomicCopyClipboard.formats) -notcontains $_ })
+    if ($afterAtomicCopyClipboard.contains_text -ne $originalClipboard.contains_text -or $afterAtomicCopyClipboard.normalized_sha256 -ne $originalClipboard.normalized_sha256 -or $missingCopyFormats.Count -ne 0) {
+        throw 'Atomic copy did not preserve the original clipboard state.'
+    }
+
+    $copyFailureTarget = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
+    if ($copyFailureTarget.count -ne 1) { throw 'Could not resolve the deterministic copy failure target.' }
+    $copyFailureObserved = $false
+    try {
+        Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $copyFailureTarget.controls[0].id; selection = 'current'; timeout_ms = 150 } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'did not change the clipboard') { $copyFailureObserved = $true } else { throw }
+    }
+    if (-not $copyFailureObserved) { throw 'Atomic copy from a non-text button did not fail its clipboard sequence gate.' }
+    $afterFailedCopyClipboard = Invoke-WcuTool -Name 'read_clipboard_text'
+    $missingFailedCopyFormats = @($originalClipboard.formats | Where-Object { @($afterFailedCopyClipboard.formats) -notcontains $_ })
+    if ($afterFailedCopyClipboard.contains_text -ne $originalClipboard.contains_text -or $afterFailedCopyClipboard.normalized_sha256 -ne $originalClipboard.normalized_sha256 -or $missingFailedCopyFormats.Count -ne 0) {
+        throw "Atomic copy failure did not restore the original clipboard state: expected_contains=$($originalClipboard.contains_text), actual_contains=$($afterFailedCopyClipboard.contains_text), expected_hash=$($originalClipboard.normalized_sha256), actual_hash=$($afterFailedCopyClipboard.normalized_sha256), missing_formats=$($missingFailedCopyFormats -join ',')."
+    }
+    $atomicCopyFailureRestore = $true
 
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
     Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
@@ -599,6 +637,9 @@ try {
         atomic_paste_roundtrip = $atomicPasteRoundtrip
         atomic_paste_append = $atomicPasteAppend
         atomic_paste_failure_restore = $atomicPasteFailureRestore
+        atomic_copy_all = $atomicCopyAll
+        atomic_copy_current = $atomicCopyCurrent
+        atomic_copy_failure_restore = $atomicCopyFailureRestore
         end_session_released_keys = $ended.released_keys
         end_session_released_buttons = $ended.released_buttons
         end_session_discarded_clipboard_backups = $ended.discarded_clipboard_backups
@@ -617,6 +658,7 @@ try {
     if ($null -ne $mcp) {
         try { $mcp.StandardInput.Close() } catch {}
         if (-not $mcp.WaitForExit(2000)) { try { $mcp.Kill() } catch {} }
+        if ($null -ne $mcpErrorTask) { try { $mcpErrorTask.GetAwaiter().GetResult() | Out-Null } catch {} }
         $mcp.Dispose()
     }
     if (-not $KeepTestWindow -and $null -ne $testApp) {

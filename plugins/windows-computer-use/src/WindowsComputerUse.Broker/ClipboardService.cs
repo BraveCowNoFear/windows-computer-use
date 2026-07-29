@@ -35,7 +35,7 @@ public sealed class ClipboardService : IDisposable
         };
     }
 
-    public T UseTemporaryText<T>(string text, Func<T> action)
+    internal T UseTemporaryText<T>(string text, Func<T> action)
     {
         ArgumentNullException.ThrowIfNull(action);
         var write = WriteTextCore(text, preservePrevious: true);
@@ -55,6 +55,34 @@ public sealed class ClipboardService : IDisposable
 
         if (actionFailure is not null) ExceptionDispatchInfo.Capture(actionFailure).Throw();
         return result!;
+    }
+
+    internal ClipboardTextCapture CaptureText(Action copyAction, int timeoutMs)
+    {
+        ArgumentNullException.ThrowIfNull(copyAction);
+        var marker = $"wcu-copy-marker-{Guid.NewGuid():N}";
+        return UseTemporaryText(marker, () =>
+        {
+            var beforeSequence = NativeMethods.GetClipboardSequenceNumber();
+            copyAction();
+            var deadline = Environment.TickCount64 + Math.Clamp(timeoutMs, 100, 10_000);
+            do
+            {
+                if (NativeMethods.GetClipboardSequenceNumber() != beforeSequence)
+                {
+                    var state = RunSta(ReadState);
+                    if (!state.ContainsText)
+                        throw new InvalidOperationException("The copy action changed the clipboard but did not publish Unicode text.");
+                    return new ClipboardTextCapture(
+                        state.Text ?? string.Empty,
+                        Hash(state.Text)!,
+                        NormalizedHash(state.Text)!,
+                        state.Formats);
+                }
+                Thread.Sleep(20);
+            } while (Environment.TickCount64 < deadline);
+            throw new TimeoutException("The copy action did not change the clipboard before the deadline.");
+        });
     }
 
     private ClipboardWriteState WriteTextCore(string text, bool preservePrevious)
@@ -131,27 +159,41 @@ public sealed class ClipboardService : IDisposable
 
     private static ClipboardState RestoreAndVerify(ClipboardSnapshot snapshot)
     {
-        RunSta(() =>
-        {
-            RestoreSnapshot(snapshot);
-            return true;
-        });
         var deadline = Environment.TickCount64 + 2_000;
-        ClipboardState restored;
-        string[] missingFormats;
+        ClipboardState restored = new(false, null, []);
+        string[] missingFormats = snapshot.Formats;
         do
         {
-            restored = RunSta(ReadState);
-            missingFormats = snapshot.Formats.Except(restored.Formats, StringComparer.OrdinalIgnoreCase).ToArray();
-            if (snapshot.ContainsText == restored.ContainsText && EquivalentText(snapshot.Text, restored.Text) && missingFormats.Length == 0) break;
-            Thread.Sleep(25);
+            RunSta(() =>
+            {
+                RestoreSnapshot(snapshot);
+                return true;
+            });
+            do
+            {
+                restored = RunSta(ReadState);
+                missingFormats = snapshot.Formats.Except(restored.Formats, StringComparer.OrdinalIgnoreCase).ToArray();
+                if (SnapshotMatches(snapshot, restored, missingFormats))
+                {
+                    var sequence = NativeMethods.GetClipboardSequenceNumber();
+                    Thread.Sleep(150);
+                    var stable = RunSta(ReadState);
+                    var stableMissing = snapshot.Formats.Except(stable.Formats, StringComparer.OrdinalIgnoreCase).ToArray();
+                    if (sequence == NativeMethods.GetClipboardSequenceNumber() && SnapshotMatches(snapshot, stable, stableMissing)) return stable;
+                    restored = stable;
+                    missingFormats = stableMissing;
+                    break;
+                }
+                Thread.Sleep(25);
+            } while (Environment.TickCount64 < deadline);
         } while (Environment.TickCount64 < deadline);
-        if (snapshot.ContainsText != restored.ContainsText || !EquivalentText(snapshot.Text, restored.Text) || missingFormats.Length > 0)
-            throw new InvalidOperationException(
-                $"Clipboard restore verification failed; expected text={snapshot.ContainsText}/{NormalizedHash(snapshot.Text)}, " +
-                $"actual={restored.ContainsText}/{NormalizedHash(restored.Text)}, missing formats: {string.Join(", ", missingFormats)}");
-        return restored;
+        throw new InvalidOperationException(
+            $"Clipboard restore verification failed; expected text={snapshot.ContainsText}/{NormalizedHash(snapshot.Text)}, " +
+            $"actual={restored.ContainsText}/{NormalizedHash(restored.Text)}, missing formats: {string.Join(", ", missingFormats)}");
     }
+
+    private static bool SnapshotMatches(ClipboardSnapshot snapshot, ClipboardState state, string[] missingFormats) =>
+        snapshot.ContainsText == state.ContainsText && EquivalentText(snapshot.Text, state.Text) && missingFormats.Length == 0;
 
     public int ClearSession()
     {
@@ -315,3 +357,5 @@ public sealed class ClipboardService : IDisposable
         }
     }
 }
+
+internal sealed record ClipboardTextCapture(string Text, string Sha256, string NormalizedSha256, string[] Formats);

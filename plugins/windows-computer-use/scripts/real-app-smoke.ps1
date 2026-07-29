@@ -7,6 +7,7 @@ if (-not (Test-Path -LiteralPath $mcpPath) -or -not (Test-Path -LiteralPath $bro
 }
 
 $mcp = $null
+$mcpErrorTask = $null
 $nextId = 0
 $openedWindows = [System.Collections.Generic.List[object]]::new()
 $artifacts = [System.Collections.Generic.List[string]]::new()
@@ -19,7 +20,10 @@ function Invoke-McpRequest {
     $script:mcp.StandardInput.WriteLine(($payload | ConvertTo-Json -Depth 20 -Compress))
     $script:mcp.StandardInput.Flush()
     $line = $script:mcp.StandardOutput.ReadLine()
-    if ($null -eq $line) { throw "MCP closed unexpectedly: $($script:mcp.StandardError.ReadToEnd())" }
+    if ($null -eq $line) {
+        $stderr = if ($null -ne $script:mcpErrorTask -and $script:mcpErrorTask.IsCompleted) { $script:mcpErrorTask.GetAwaiter().GetResult() } else { 'MCP stderr is still draining.' }
+        throw "MCP closed unexpectedly: $stderr"
+    }
     $response = $line | ConvertFrom-Json
     if ($null -ne $response.error) { throw $response.error.message }
     return $response.result
@@ -134,6 +138,7 @@ try {
     $mcp = [System.Diagnostics.Process]::new()
     $mcp.StartInfo = $start
     if (-not $mcp.Start()) { throw 'Could not start MCP process.' }
+    $mcpErrorTask = $mcp.StandardError.ReadToEndAsync()
     Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'real-app-smoke'; version = '1.0' } } | Out-Null
 
     $results = [System.Collections.Generic.List[object]]::new()
@@ -185,6 +190,7 @@ try {
         }
         try { $mcp.StandardInput.Close() } catch {}
         if (-not $mcp.WaitForExit(2000)) { try { $mcp.Kill() } catch {} }
+        if ($null -ne $mcpErrorTask) { try { $mcpErrorTask.GetAwaiter().GetResult() | Out-Null } catch {} }
         $mcp.Dispose()
     }
     foreach ($artifact in @($artifacts)) { Remove-Item -LiteralPath $artifact -Force -ErrorAction SilentlyContinue }

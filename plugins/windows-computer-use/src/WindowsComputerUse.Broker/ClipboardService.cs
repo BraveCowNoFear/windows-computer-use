@@ -20,6 +20,45 @@ public sealed class ClipboardService : IDisposable
 
     public object WriteText(string text, bool preservePrevious)
     {
+        var result = WriteTextCore(text, preservePrevious);
+        return new
+        {
+            ok = true,
+            backend = "winforms-ole-clipboard",
+            text = result.State.Text,
+            length = result.State.Text?.Length ?? 0,
+            sha256 = Hash(result.State.Text),
+            normalized_sha256 = NormalizedHash(result.State.Text),
+            formats = result.State.Formats,
+            backup_id = result.BackupId,
+            replaces_existing_formats = true
+        };
+    }
+
+    public T UseTemporaryText<T>(string text, Func<T> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var write = WriteTextCore(text, preservePrevious: true);
+        var backupId = write.BackupId ?? throw new InvalidOperationException("Temporary clipboard write did not create a recovery token.");
+        T? result = default;
+        Exception? actionFailure = null;
+        try { result = action(); }
+        catch (Exception error) { actionFailure = error; }
+
+        try { _ = Restore(backupId); }
+        catch (Exception restoreFailure)
+        {
+            var message = $"Temporary clipboard restore failed; retry restore_clipboard with backup_id {backupId}.";
+            if (actionFailure is not null) throw new AggregateException(message, actionFailure, restoreFailure);
+            throw new InvalidOperationException(message, restoreFailure);
+        }
+
+        if (actionFailure is not null) ExceptionDispatchInfo.Capture(actionFailure).Throw();
+        return result!;
+    }
+
+    private ClipboardWriteState WriteTextCore(string text, bool preservePrevious)
+    {
         ArgumentNullException.ThrowIfNull(text);
         var snapshot = preservePrevious ? RunSta(CaptureSnapshot) : null;
         try
@@ -56,18 +95,7 @@ public sealed class ClipboardService : IDisposable
                 lock (_gate) _backups[backupId] = snapshot;
                 snapshot = null;
             }
-            return new
-            {
-                ok = true,
-                backend = "winforms-ole-clipboard",
-                text = current.Text,
-                length = current.Text?.Length ?? 0,
-                sha256 = Hash(current.Text),
-                normalized_sha256 = NormalizedHash(current.Text),
-                formats = current.Formats,
-                backup_id = backupId,
-                replaces_existing_formats = true
-            };
+            return new ClipboardWriteState(current, backupId);
         }
         finally
         {
@@ -262,6 +290,8 @@ public sealed class ClipboardService : IDisposable
     }
 
     private sealed record ClipboardState(bool ContainsText, string? Text, string[] Formats);
+
+    private sealed record ClipboardWriteState(ClipboardState State, string? BackupId);
 
     private sealed class ClipboardSnapshot(DataObject? data, bool containsText, string? text, string[] formats) : IDisposable
     {

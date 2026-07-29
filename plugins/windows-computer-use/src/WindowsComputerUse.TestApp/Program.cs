@@ -70,13 +70,22 @@ internal sealed class TestForm : Form
             Size = new Size(110, 42),
             Font = new Font(SystemFonts.MessageBoxFont?.FontFamily ?? FontFamily.GenericSansSerif, 14, FontStyle.Bold)
         };
+        var readOnlyPaste = new TextBox
+        {
+            Name = "ReadOnlyPasteBox",
+            AccessibleName = "Read-only paste target",
+            Text = "Locked",
+            ReadOnly = true,
+            Location = new Point(30, 108),
+            Width = 180
+        };
         var status = new Label
         {
             Name = "StatusLabel",
             AccessibleName = "Idle",
             Text = "Idle",
             AutoSize = true,
-            Location = new Point(30, 132)
+            Location = new Point(30, 140)
         };
         var openDialog = new Button
         {
@@ -215,7 +224,7 @@ internal sealed class TestForm : Form
             mouseStatus.Text = $"Mouse up: {eventArgs.Button}";
             mouseStatus.AccessibleName = mouseStatus.Text;
         };
-        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, keyStatus, mouseSurface, mouseStatus]);
+        Controls.AddRange([heading, input, commit, readOnlyPaste, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, keyStatus, mouseSurface, mouseStatus]);
         AcceptButton = commit;
     }
 }

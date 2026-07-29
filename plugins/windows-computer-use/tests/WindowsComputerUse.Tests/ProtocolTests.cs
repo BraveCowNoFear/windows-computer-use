@@ -10,7 +10,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(33, ToolCatalog.All.Count);
+        Assert.Equal(34, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -25,6 +25,7 @@ public sealed class ProtocolTests
         Assert.Contains("pointer_position", json);
         Assert.Contains("move_pointer", json);
         Assert.Contains("perform_secondary_action", json);
+        Assert.Contains("paste_text", json);
         Assert.Contains("mouse_down", json);
         Assert.Contains("mouse_up", json);
         Assert.Contains("key_down", json);
@@ -52,6 +53,16 @@ public sealed class ProtocolTests
         var restore = Assert.Single(ToolCatalog.All, tool => tool.Name == "restore_clipboard");
         var restoreSchema = JsonSerializer.SerializeToElement(restore.InputSchema, ProtocolJson.Options);
         Assert.Contains("backup_id", restoreSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
+
+        var paste = Assert.Single(ToolCatalog.All, tool => tool.Name == "paste_text");
+        var pasteSchema = JsonSerializer.SerializeToElement(paste.InputSchema, ProtocolJson.Options);
+        var pasteProperties = pasteSchema.GetProperty("properties");
+        Assert.True(pasteProperties.TryGetProperty("control_id", out _));
+        Assert.True(pasteProperties.TryGetProperty("append", out _));
+        Assert.True(pasteProperties.TryGetProperty("timeout_ms", out _));
+        Assert.Contains("text", pasteSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
+        var pasteAnnotations = JsonSerializer.SerializeToElement(paste.Annotations, ProtocolJson.Options);
+        Assert.False(pasteAnnotations.GetProperty("readOnlyHint").GetBoolean());
     }
 
     [Fact]

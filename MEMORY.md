@@ -115,10 +115,16 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Preserved writes materialize every direct clipboard format before mutation and fail closed when a value cannot be cloned safely. The backup token stays only in the owning Broker session; restore republishes all formats, waits for Windows delayed rendering, verifies the format set plus normalized text digest, then consumes the token.
 - Nineteen unit tests gate the schemas and read-only annotations. Three consecutive real E2E runs write a random Unicode-safe marker, read it back, focus the semantic edit, prove system `Ctrl+V`, restore the pre-test Chromium text/HTML/custom-format clipboard without exposing its content, and confirm `end_session` has no orphaned backup token.
 
+### v0.16.0 — atomic verified paste fallback
+
+- Added `paste_text`, making 34 MCP tools. One Broker call now preserves all direct formats, focuses an exact semantic target, uses `Ctrl+A` replacement or `Ctrl+End` append plus real `Ctrl+V`, waits for exposed UIA Value state, and restores the original clipboard before returning.
+- The temporary clipboard transaction restores through the same verified path when focus, input, re-observation, or Value verification fails. If restoration itself fails, the MCP error retains the session-local backup id so the caller can explicitly retry rather than losing recovery state.
+- The WinForms fixture adds a deterministic read-only target. Repeated real E2E runs prove atomic replace, `Ctrl+End` append, and an intentional 150 ms Value timeout all restore the pre-test Chromium text/HTML/custom formats; raw clipboard tools and end-session orphan checks remain covered.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.
-- Native Unicode typing remains the non-mutating default; explicit clipboard tools now cover real paste workflows but callers must restore a preserved backup before `end_session` if the new clipboard content is not intentional.
+- Native Unicode typing remains the non-mutating default and `paste_text` is the atomic reversible fallback; callers using raw preserved writes must still restore their backup before `end_session` if the new clipboard content is not intentional.
 - Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 

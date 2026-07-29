@@ -19,6 +19,9 @@ $scaledTemplatePath = Join-Path $env:TEMP ("windows-computer-use-scaled-template
 $nextId = 0
 $clipboardBackupId = $null
 $clipboardRoundtrip = $false
+$atomicPasteRoundtrip = $false
+$atomicPasteAppend = $false
+$atomicPasteFailureRestore = $false
 
 function Invoke-McpRequest {
     param([string]$Method, [hashtable]$Params = @{})
@@ -71,7 +74,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 33) { throw "Expected 33 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 34) { throw "Expected 34 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -147,6 +150,41 @@ try {
         }
     }
     $clipboardRoundtrip = $true
+
+    $atomicPasteText = "Atomic paste $([guid]::NewGuid().ToString('N'))"
+    $atomicPaste = Invoke-WcuTool -Name 'paste_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $atomicPasteText; timeout_ms = 2000 }
+    if (-not $atomicPaste.ok -or -not $atomicPaste.data.clipboard_restored -or $atomicPaste.verification.strategy -ne 'uia3-value-and-clipboard-restore' -or $atomicPaste.data.control.value -ne $atomicPasteText) {
+        throw 'Atomic clipboard-backed paste did not verify target Value and clipboard restoration.'
+    }
+    $atomicAppendText = ' + appended'
+    $atomicAppend = Invoke-WcuTool -Name 'paste_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $atomicAppendText; append = $true; timeout_ms = 2000 }
+    if (-not $atomicAppend.ok -or -not $atomicAppend.data.clipboard_restored -or -not $atomicAppend.data.append -or $atomicAppend.data.control.value -ne ($atomicPasteText + $atomicAppendText)) {
+        throw 'Atomic clipboard-backed append did not move to the end, verify Value, and restore the clipboard.'
+    }
+    $atomicPasteAppend = $true
+    $afterAtomicClipboard = Invoke-WcuTool -Name 'read_clipboard_text'
+    $missingAtomicFormats = @($originalClipboard.formats | Where-Object { @($afterAtomicClipboard.formats) -notcontains $_ })
+    if ($afterAtomicClipboard.contains_text -ne $originalClipboard.contains_text -or $afterAtomicClipboard.normalized_sha256 -ne $originalClipboard.normalized_sha256 -or $missingAtomicFormats.Count -ne 0) {
+        throw 'Atomic paste did not preserve the original clipboard state.'
+    }
+    $atomicPasteRoundtrip = $true
+
+    $readOnlyPaste = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'ReadOnlyPasteBox'; limit = 2 }
+    if ($readOnlyPaste.count -ne 1 -or -not $readOnlyPaste.controls[0].isReadOnly) { throw 'Could not resolve the deterministic read-only paste target.' }
+    $pasteFailureObserved = $false
+    try {
+        Invoke-WcuTool -Name 'paste_text' -Arguments @{ window_id = $windowId; control_id = $readOnlyPaste.controls[0].id; text = 'must not stick'; timeout_ms = 150 } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'Value did not reach the expected text') { $pasteFailureObserved = $true } else { throw }
+    }
+    if (-not $pasteFailureObserved) { throw 'Read-only atomic paste did not fail its Value verification.' }
+    $afterFailedPasteClipboard = Invoke-WcuTool -Name 'read_clipboard_text'
+    $missingFailedFormats = @($originalClipboard.formats | Where-Object { @($afterFailedPasteClipboard.formats) -notcontains $_ })
+    if ($afterFailedPasteClipboard.contains_text -ne $originalClipboard.contains_text -or $afterFailedPasteClipboard.normalized_sha256 -ne $originalClipboard.normalized_sha256 -or $missingFailedFormats.Count -ne 0) {
+        throw 'Atomic paste failure did not restore the original clipboard state.'
+    }
+    $atomicPasteFailureRestore = $true
+
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
     Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
     Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+a' } | Out-Null
@@ -558,6 +596,9 @@ try {
         configurable_button_drag = $rightDragWait.matched
         direct_screen_mouse_roundtrip = $directMouseDownWait.matched -and $directMouseUpWait.matched
         clipboard_roundtrip = $clipboardRoundtrip
+        atomic_paste_roundtrip = $atomicPasteRoundtrip
+        atomic_paste_append = $atomicPasteAppend
+        atomic_paste_failure_restore = $atomicPasteFailureRestore
         end_session_released_keys = $ended.released_keys
         end_session_released_buttons = $ended.released_buttons
         end_session_discarded_clipboard_backups = $ended.discarded_clipboard_backups

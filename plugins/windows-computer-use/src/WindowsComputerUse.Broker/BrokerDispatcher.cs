@@ -54,6 +54,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "invoke" => Invoke(args),
                 "perform_secondary_action" => PerformSecondaryAction(args),
                 "enter_text" => EnterText(args),
+                "paste_text" => PasteText(args),
                 "wait_for_ui" => Wait(args),
                 "capture" => Capture(args),
                 "snapshot" => Snapshot(args),
@@ -97,7 +98,7 @@ public sealed class BrokerDispatcher : IDisposable
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session";
 
     private object Launch(JsonElement args)
@@ -226,6 +227,78 @@ public sealed class BrokerDispatcher : IDisposable
         var text = args.String("text") ?? throw new ArgumentException("text is required");
         var window = _windows.Activate(_windows.Resolve(args));
         try { return _uia.EnterText(window, args.String("control_id"), args, text, args.Bool("append")); }
+        finally { _screenshots.Clear(); }
+    }
+
+    private ActionResult PasteText(JsonElement args)
+    {
+        var text = args.String("text") ?? throw new ArgumentException("text is required");
+        var append = args.Bool("append");
+        var timeoutMs = Math.Clamp(args.Int("timeout_ms", 2_000), 100, 10_000);
+        var settleMs = Math.Clamp(args.Int("settle_ms", 200), 50, 2_000);
+        var window = _windows.Activate(_windows.Resolve(args));
+        try
+        {
+            if (_input.HeldKeys.Count > 0)
+                throw new InvalidOperationException($"paste_text requires all tracked keys to be released first; held: {string.Join(", ", _input.HeldKeys)}.");
+            var beforeMatches = _uia.Find(window, args, 2);
+            if (beforeMatches.Count != 1)
+                throw new InvalidOperationException(beforeMatches.Count == 0
+                    ? "No matching control was found for clipboard paste. Reinspect the window before retrying."
+                    : "Clipboard paste selector is ambiguous. Use one stable control id.");
+            var before = beforeMatches[0];
+            var expected = before.Value is null || (append && before.Value.Length >= 4096)
+                ? null
+                : append ? before.Value + text : text;
+            var expectedObserved = expected is { Length: > 4096 } ? expected[..4096] : expected;
+
+            var after = _clipboard.UseTemporaryText(text, () =>
+            {
+                _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
+                _input.PressChord(append ? "ctrl+end" : "ctrl+a");
+                _input.PressChord("ctrl+v");
+
+                ControlDescriptor? observed = null;
+                if (expectedObserved is null)
+                {
+                    Thread.Sleep(settleMs);
+                    var matches = _uia.Find(window, args, 2);
+                    if (matches.Count == 1) observed = matches[0];
+                }
+                else
+                {
+                    var deadline = Environment.TickCount64 + timeoutMs;
+                    do
+                    {
+                        var matches = _uia.Find(window, args, 2, "value");
+                        if (matches.Count == 1)
+                        {
+                            observed = matches[0];
+                            if (string.Equals(observed.Value, expectedObserved, StringComparison.Ordinal)) break;
+                        }
+                        Thread.Sleep(25);
+                    } while (Environment.TickCount64 < deadline);
+                }
+
+                if (observed is null)
+                    throw new InvalidOperationException("The paste target could not be re-observed before restoring the clipboard.");
+                if (expectedObserved is not null && !string.Equals(observed.Value, expectedObserved, StringComparison.Ordinal))
+                    throw new InvalidOperationException("The paste target Value did not reach the expected text before the clipboard restore deadline.");
+                return observed;
+            });
+
+            return new ActionResult(
+                true,
+                "paste_text",
+                "windows-ole-clipboard+sendinput",
+                new ActionVerification(
+                    true,
+                    expectedObserved is null ? "uia3-reobserve-and-clipboard-restore" : "uia3-value-and-clipboard-restore",
+                    before.Value,
+                    after.Value,
+                    after.Id),
+                new { control = after, clipboard_restored = true, append });
+        }
         finally { _screenshots.Clear(); }
     }
 

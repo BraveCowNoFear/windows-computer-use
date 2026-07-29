@@ -26,7 +26,7 @@ Capture the virtual desktop again. Desktop screenshot ids are invalidated after 
 
 ## Clipboard write or restore failed
 
-If `write_clipboard_text` cannot materialize an existing direct format, it fails before mutation. Use direct `enter_text`/`type_text`, or explicitly choose `preserve_previous=false` only when replacing the user's clipboard is the intended result. If a later paste action fails, still call `restore_clipboard` with the saved backup id in cleanup. Do not call `end_session` first because backup ids are session-local and unused ids are discarded at session end.
+If `paste_text` or `write_clipboard_text` cannot materialize an existing direct format, it fails before mutation. Use direct `enter_text`/`type_text`, or explicitly choose `preserve_previous=false` only when replacing the user's clipboard is the intended result. `paste_text` restores after target-action/Value failure; if the restore itself fails, its error includes the still-valid backup id—retry `restore_clipboard` before `end_session`. For a manual write/paste sequence, always restore the saved id in cleanup.
 
 ## UI lock busy
 

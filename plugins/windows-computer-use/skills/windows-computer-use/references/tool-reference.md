@@ -21,6 +21,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `invoke` | Invoke, select, toggle, expand, or center-click one semantic control. |
 | `perform_secondary_action` | Explicitly focus/raise, select, add/remove selection, toggle, expand/collapse, or UIA-scroll one semantic control. |
 | `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput. |
+| `paste_text` | Preserve all direct clipboard formats, focus a semantic target, replace or append through real Ctrl+V, verify UIA Value when exposed, and restore on success or failure. |
 | `wait_for_ui` | Wait for existence/visibility/focus, Value equality/containment, selected/unselected, toggle on/off/indeterminate, expanded/collapsed, or read-only/editable state. |
 | `capture` | Return PNG image content plus an actionable screenshot id for a window or virtual desktop, and optionally save it. |
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
@@ -57,6 +58,8 @@ An exact `window_id` is resolved directly as an HWND even when that window is te
 `find_image` defaults to `scale_min=scale_max=1.0`. For known DPI or zoom variation, scales are bounded to 0.25-4.0 with a 0.01-1.0 step and at most 25 evaluated sizes; 1.0 is included when it lies inside the range. Results are ranked and overlap-suppressed across scales. Use a narrow range because runtime grows with every evaluated size, and use `snapshot`/model vision for novel or rotated targets.
 
 `write_clipboard_text` defaults to `preserve_previous=true`. It materializes every direct clipboard format before mutation and fails without changing the clipboard if one cannot be backed up safely. Keep the returned `backup_id` and call `restore_clipboard` in cleanup after the paste; the restore tolerates Windows line-ending normalization, verifies the original format set and normalized text digest, and consumes the id. Backup ids belong to the current broker process and are discarded by `end_session`/shutdown without automatically changing the current clipboard. Use `preserve_previous=false` only for an intentional persistent clipboard update.
+
+`paste_text` wraps that lifecycle into one transaction. Release any tracked held keys first so they cannot change its chords. It focuses one exact semantic control, uses `Ctrl+A` for replacement or `Ctrl+End` for append, sends real `Ctrl+V`, and keeps the temporary clipboard active until the target's UIA Value equals the expected text or `timeout_ms` expires. Controls without Value state use `settle_ms` followed by semantic re-observation. It restores before returning or rethrowing an action failure; if restoration itself cannot be verified, the error includes the still-valid `backup_id` for an explicit `restore_clipboard` retry.
 
 For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be preempted, but an observation completed after `timeout_ms` is not reported as a successful match.
 

@@ -41,7 +41,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(36, ToolCatalog.All.Count);
+        Assert.Equal(37, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -54,6 +54,7 @@ public sealed class ProtocolTests
         Assert.Contains("find_image", json);
         Assert.Contains("wait_for_window", json);
         Assert.Contains("set_window_state", json);
+        Assert.Contains("set_window_bounds", json);
         Assert.Contains("pointer_position", json);
         Assert.Contains("move_pointer", json);
         Assert.Contains("perform_secondary_action", json);
@@ -68,6 +69,20 @@ public sealed class ProtocolTests
         Assert.Contains("restore_clipboard", json);
         Assert.Contains("end_session", json);
     }
+
+    [Fact]
+    public void SetWindowBounds_RequiresExactPhysicalRectangle()
+    {
+        var tool = Assert.Single(ToolCatalog.All, candidate => candidate.Name == "set_window_bounds");
+        var schema = JsonSerializer.SerializeToElement(tool.InputSchema, ProtocolJson.Options);
+        var required = schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Contains("x", required);
+        Assert.Contains("y", required);
+        Assert.Contains("width", required);
+        Assert.Contains("height", required);
+        Assert.True(schema.GetProperty("properties").TryGetProperty("activate", out _));
+    }
+
 
     [Fact]
     public void ObserveDesktop_AdvertisesAtomicReadOnlyDesktopState()

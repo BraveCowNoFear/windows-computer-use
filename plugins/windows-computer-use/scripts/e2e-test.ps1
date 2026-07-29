@@ -79,7 +79,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 36) { throw "Expected 36 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 37) { throw "Expected 37 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -116,6 +116,31 @@ try {
     $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
     if ($target.Count -ne 1) { throw "Expected one test window, found $($target.Count)." }
     $windowId = [long]$target[0].id
+
+    $script:stage = 'window-bounds'
+    $originalBounds = $target[0].bounds
+    $movedX = [int]$originalBounds.x + 20
+    $movedY = [int]$originalBounds.y + 20
+    $movedWidth = [int]$originalBounds.width + 40
+    $movedHeight = [int]$originalBounds.height + 30
+    $movedBounds = Invoke-WcuTool -Name 'set_window_bounds' -Arguments @{ window_id = $windowId; x = $movedX; y = $movedY; width = $movedWidth; height = $movedHeight; activate = $false }
+    if (-not $movedBounds.ok -or
+        $movedBounds.backend -ne 'win32-set-window-pos' -or
+        -not $movedBounds.verification.verified -or
+        $movedBounds.data.window.bounds.x -ne $movedX -or
+        $movedBounds.data.window.bounds.y -ne $movedY -or
+        $movedBounds.data.window.bounds.width -ne $movedWidth -or
+        $movedBounds.data.window.bounds.height -ne $movedHeight -or
+        $movedBounds.data.window.isForeground -ne $target[0].isForeground) {
+        throw "Native window move/resize did not reach the exact physical bounds without changing foreground state: $($movedBounds | ConvertTo-Json -Depth 6 -Compress)"
+    }
+    $restoredBounds = Invoke-WcuTool -Name 'set_window_bounds' -Arguments @{ window_id = $windowId; x = [int]$originalBounds.x; y = [int]$originalBounds.y; width = [int]$originalBounds.width; height = [int]$originalBounds.height; activate = $false }
+    if ($restoredBounds.data.window.bounds.x -ne $originalBounds.x -or
+        $restoredBounds.data.window.bounds.y -ne $originalBounds.y -or
+        $restoredBounds.data.window.bounds.width -ne $originalBounds.width -or
+        $restoredBounds.data.window.bounds.height -ne $originalBounds.height) {
+        throw 'Native window geometry did not restore the exact original rectangle.'
+    }
 
     $inspection = Invoke-WcuTool -Name 'inspect_window' -Arguments @{ window_id = $windowId; limit = 100 }
     if (@($inspection.controls).Count -lt 4) { throw 'UIA inspection returned too few controls.' }
@@ -644,6 +669,7 @@ try {
         primary_scale_percent = $displayInfo.displays[0].scalePercent
         virtual_desktop = "$($displayInfo.virtualDesktop.x),$($displayInfo.virtualDesktop.y),$($displayInfo.virtualDesktop.width),$($displayInfo.virtualDesktop.height)"
         window_id = $windowId
+        window_bounds_roundtrip = $true
         controls = @($inspection.controls).Count
         text_backend = $entered.backend
         invoke_backend = $invoked.backend

@@ -32,6 +32,9 @@ internal static class NativeMethods
     internal const uint Xbutton1 = 0x0001;
     internal const uint Xbutton2 = 0x0002;
     internal const uint DwmwaExtendedFrameBounds = 9;
+    internal const uint SwpNozorder = 0x0004;
+    internal const uint SwpNoactivate = 0x0010;
+    internal const uint SwpNoownerzorder = 0x0200;
 
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
@@ -102,6 +105,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ShowWindowAsync(nint hWnd, int command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetWindowPos(nint hWnd, nint insertAfter, int x, int y, int width, int height, uint flags);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

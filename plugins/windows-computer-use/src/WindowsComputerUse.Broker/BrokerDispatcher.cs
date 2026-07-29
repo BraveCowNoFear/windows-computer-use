@@ -78,6 +78,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "scroll" => Scroll(args),
                 "drag" => Drag(args),
                 "set_window_state" => SetWindowState(args),
+                "set_window_bounds" => SetWindowBounds(args),
                 "activate_window" => Activate(args),
                 "end_session" => EndSession(),
                 _ => throw new NotSupportedException($"Unknown broker method: {method}")
@@ -102,7 +103,7 @@ public sealed class BrokerDispatcher : IDisposable
 
     private static bool NeedsUiLock(string method) => method is
         "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
-        "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session" or "recover_input_state";
+        "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "set_window_bounds" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
     {
@@ -978,6 +979,21 @@ public sealed class BrokerDispatcher : IDisposable
             window,
             verification = new { verified = true, is_minimized = window.IsMinimized, is_maximized = window.IsMaximized }
         };
+    }
+
+    private ActionResult SetWindowBounds(JsonElement args)
+    {
+        var before = _windows.Resolve(args);
+        var requested = new RectDto(args.Int("x"), args.Int("y"), args.Int("width"), args.Int("height"));
+        var activate = args.Bool("activate");
+        var after = _windows.SetBounds(before, requested, activate, args.Int("timeout_ms", 3000));
+        _screenshots.Clear();
+        return new ActionResult(
+            true,
+            "set_window_bounds",
+            "win32-set-window-pos",
+            new ActionVerification(true, "exact-physical-window-bounds", $"{before.Bounds.X},{before.Bounds.Y},{before.Bounds.Width},{before.Bounds.Height}", $"{after.Bounds.X},{after.Bounds.Y},{after.Bounds.Width},{after.Bounds.Height}"),
+            new { requested, window = after, activate, coordinate_space = "physical-screen-pixels" });
     }
 
     private object EndSession()

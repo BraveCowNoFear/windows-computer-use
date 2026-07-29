@@ -232,6 +232,29 @@ public sealed class WindowService
         throw new TimeoutException($"Window did not reach the requested {state} state.");
     }
 
+    public WindowDescriptor SetBounds(WindowDescriptor window, RectDto bounds, bool activate, int timeoutMs = 3000)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0) throw new ArgumentOutOfRangeException(nameof(bounds), "Window width and height must be positive physical pixels.");
+        if (window.IsMinimized || window.IsMaximized) window = SetState(window, "restore", timeoutMs);
+        var handle = new nint(window.Id);
+        var flags = NativeMethods.SwpNozorder | NativeMethods.SwpNoownerzorder | (activate ? 0u : NativeMethods.SwpNoactivate);
+        if (!NativeMethods.SetWindowPos(handle, 0, bounds.X, bounds.Y, bounds.Width, bounds.Height, flags))
+            throw new InvalidOperationException($"SetWindowPos failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
+        if (activate) window = Activate(Resolve(window.Id));
+
+        var deadline = Environment.TickCount64 + Math.Clamp(timeoutMs, 100, 10_000);
+        WindowDescriptor current;
+        do
+        {
+            Thread.Sleep(50);
+            current = Resolve(window.Id);
+            if (current.Bounds == bounds) return current;
+        } while (Environment.TickCount64 < deadline);
+        throw new TimeoutException(
+            $"Window bounds did not reach the requested physical rectangle {bounds.X},{bounds.Y},{bounds.Width},{bounds.Height}; " +
+            $"actual {current.Bounds.X},{current.Bounds.Y},{current.Bounds.Width},{current.Bounds.Height}.");
+    }
+
     private static void ActivateWithAttachedInput(nint handle)
     {
         var currentThread = NativeMethods.GetCurrentThreadId();

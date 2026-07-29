@@ -149,6 +149,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Twenty-seven unit tests gate tool uniqueness and read-only schema. Real E2E receives one 2560x1600 PNG, one 150%-scaled display, twelve visible windows including the isolated target, and a physical pointer descriptor, then uses that exact observation id for a verified screenshot-space pointer move.
 - The Broker fault-injection harness now allows 25 seconds for an MCP response because production recovery intentionally has a 15-second restart/input-release budget. Its injected call deadline is 2000 ms against a deterministic 5000 ms native wait: a former 250 ms setting could incorrectly time out normal setup input under combined-test load, while a 5-second response reader could reject a valid slow recovery.
 
+### v0.21.0 — verified physical window geometry
+
+- Added `set_window_bounds`, making 37 MCP tools. It targets one exact HWND and uses Win32 `SetWindowPos` with physical virtual-desktop `x/y/width/height`; negative origins are accepted and positive dimensions are required.
+- Minimized/maximized targets restore before movement. Foreground is preserved by default through `SWP_NOACTIVATE`, while `activate=true` uses the existing verified activation path. Completion requires exact `GetWindowRect` equality and returns the before/after rectangles in action verification.
+- Twenty-eight unit tests gate required geometry fields. Three consecutive real E2E runs move the isolated WinForms window by 20 physical pixels, enlarge it by 40x30, prove foreground state is unchanged, and restore the exact original rectangle before running every prior semantic/visual/input/clipboard gate. True multi-monitor placement is not claimed from the one-monitor development machine.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

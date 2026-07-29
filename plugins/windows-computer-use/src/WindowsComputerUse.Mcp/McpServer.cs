@@ -72,7 +72,7 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.20.0" },
+            serverInfo = new { name = "windows-computer-use", version = "0.21.0" },
             instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use wait_for_window for dialogs; bind visual pixels to their screenshot id; restore minimized windows before vision."
         };
     }

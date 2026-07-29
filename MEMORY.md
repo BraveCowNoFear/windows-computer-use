@@ -91,10 +91,16 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Named coverage now includes F13-F24, left/right Win/Shift/Ctrl/Alt, Print Screen, Pause/lock keys, numpad operations, browser navigation, media transport, and volume controls. Extended-key flags are set for navigation/right-modifier/media classes.
 - Unit tests gate implied Shift, modifier ordering, held-modifier reuse, and extended/function-key planning. Three consecutive real E2E runs hold/release Shift and observe both events, prove repeated `A` produces `AA`, then leave Ctrl held and prove `end_session` releases exactly one key; a system-level async-key probe confirms Shift/Ctrl/Alt are all up afterward.
 
+### v0.12.0 — persistent five-button mouse state
+
+- Added `mouse_down` and `mouse_up`, making 30 MCP tools. Left/right/middle/X1/X2 buttons can remain held across later pointer, keyboard, and semantic actions; every transition returns tracked held-button state.
+- `click` now covers all five buttons. `drag` accepts a configurable button, rejects ambiguous reuse of an already-held button, and always releases its self-contained hold through a `finally` path. `end_session` and broker disposal release mouse buttons before keys, while cleanup attempts every held input even after an individual failure.
+- The deterministic WinForms fixture observes real MouseDown/MouseUp events. Fifteen unit cases cover tool/catalog and native button normalization; three consecutive full E2E runs prove left-button hold/move/release, right-button drag, handle recreation, and joint Ctrl+right-button session cleanup. A final system async-state probe confirms five mouse buttons plus Shift/Ctrl/Alt are all up and no project process remains.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and exact-scale local template matching covers known images. Novel non-text interpretation, scale/rotation variation, and ambiguous scenes still depend on the calling model.
-- Keyboard holds are stateful and cleanup-safe; persistent mouse-button holds are not yet exposed as first-class tools.
+- Native Unicode typing avoids clipboard mutation, but the broker does not yet expose explicit clipboard read/write or bulk-paste tools.
 - Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 

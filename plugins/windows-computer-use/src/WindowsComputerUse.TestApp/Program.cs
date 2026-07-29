@@ -40,7 +40,7 @@ internal sealed class TestForm : Form
         Name = "TestWindow";
         AccessibleName = "Windows Computer Use Test App";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 420);
+        ClientSize = new Size(520, 500);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         KeyPreview = true;
@@ -127,6 +127,25 @@ internal sealed class TestForm : Form
             AutoSize = true,
             Location = new Point(30, 345)
         };
+        var mouseSurface = new Label
+        {
+            Name = "MouseSurface",
+            AccessibleName = "Mouse interaction surface",
+            Text = "MOUSE INTERACTION SURFACE",
+            TextAlign = ContentAlignment.MiddleCenter,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = Color.AliceBlue,
+            Location = new Point(30, 375),
+            Size = new Size(250, 44)
+        };
+        var mouseStatus = new Label
+        {
+            Name = "MouseStatusLabel",
+            AccessibleName = "Mouse idle",
+            Text = "Mouse idle",
+            AutoSize = true,
+            Location = new Point(30, 440)
+        };
         commit.Click += (_, _) =>
         {
             status.Text = $"Saved: {input.Text}";
@@ -186,7 +205,17 @@ internal sealed class TestForm : Form
             keyStatus.Text = $"Key up: {eventArgs.KeyCode}";
             keyStatus.AccessibleName = keyStatus.Text;
         };
-        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, keyStatus]);
+        mouseSurface.MouseDown += (_, eventArgs) =>
+        {
+            mouseStatus.Text = $"Mouse down: {eventArgs.Button}";
+            mouseStatus.AccessibleName = mouseStatus.Text;
+        };
+        mouseSurface.MouseUp += (_, eventArgs) =>
+        {
+            mouseStatus.Text = $"Mouse up: {eventArgs.Button}";
+            mouseStatus.AccessibleName = mouseStatus.Text;
+        };
+        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, keyStatus, mouseSurface, mouseStatus]);
         AcceptButton = commit;
     }
 }

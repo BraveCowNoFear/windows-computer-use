@@ -68,7 +68,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 28) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 30) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -125,6 +125,25 @@ try {
     $uppercaseWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = 'AA'; timeout_ms = 1500 }
     if (-not $uppercaseWait.matched) { throw 'Printable uppercase repeat did not apply its implied Shift modifier.' }
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
+
+    $script:stage = 'mouse-state'
+    $mouseSurface = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'MouseSurface'; limit = 2 }
+    if ($mouseSurface.count -ne 1) { throw 'Could not uniquely resolve the mouse interaction surface.' }
+    $mouseX = [int]$mouseSurface.controls[0].bounds.x + [int]($mouseSurface.controls[0].bounds.width / 2)
+    $mouseY = [int]$mouseSurface.controls[0].bounds.y + [int]($mouseSurface.controls[0].bounds.height / 2)
+    $heldMouse = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ window_id = $windowId; x = $mouseX; y = $mouseY; coordinate_space = 'screen'; button = 'left' }
+    if (@($heldMouse.data.held_buttons) -notcontains 'left' -or -not $heldMouse.verification.verified) { throw 'mouse_down did not report and verify the held left button.' }
+    $mouseDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse down: Left'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $mouseDownWait.matched) { throw 'The test app did not observe the held left mouse button.' }
+    Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; duration_ms = 80 } | Out-Null
+    $releasedMouse = Invoke-WcuTool -Name 'mouse_up' -Arguments @{ window_id = $windowId; x = ($mouseX + 12); y = $mouseY; coordinate_space = 'screen'; button = 'left' }
+    if (@($releasedMouse.data.held_buttons).Count -ne 0 -or -not $releasedMouse.verification.verified) { throw 'mouse_up left a tracked mouse button held.' }
+    $mouseUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Left'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $mouseUpWait.matched) { throw 'The test app did not observe the left mouse button release.' }
+    $buttonDrag = Invoke-WcuTool -Name 'drag' -Arguments @{ window_id = $windowId; from_x = $mouseX; from_y = $mouseY; to_x = ($mouseX + 20); to_y = $mouseY; coordinate_space = 'screen'; button = 'right'; duration_ms = 100 }
+    if ($buttonDrag.data.button -ne 'right' -or @($buttonDrag.data.held_buttons).Count -ne 0) { throw 'The configurable-button drag did not finish with a clean mouse state.' }
+    $rightDragWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Mouse up: Right'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $rightDragWait.matched) { throw 'The test app did not observe the right-button drag release.' }
 
     $script:stage = 'toggle-state'
     $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
@@ -346,8 +365,14 @@ try {
     $windowHandleChanged = [long]$rehydratedInspection.window.id -ne $windowId
     $heldForCleanup = Invoke-WcuTool -Name 'key_down' -Arguments @{ window_id = $windowId; key = 'ctrl' }
     if (@($heldForCleanup.data.held_keys) -notcontains 'ctrl') { throw 'Could not stage a held key for end_session cleanup.' }
+    $cleanupSurface = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'MouseSurface'; limit = 2 }
+    if ($cleanupSurface.count -ne 1) { throw 'Could not re-resolve the mouse surface after HWND recreation.' }
+    $cleanupMouseX = [int]$cleanupSurface.controls[0].bounds.x + 8
+    $cleanupMouseY = [int]$cleanupSurface.controls[0].bounds.y + 8
+    $heldMouseForCleanup = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ window_id = $windowId; x = $cleanupMouseX; y = $cleanupMouseY; coordinate_space = 'screen'; button = 'right' }
+    if (@($heldMouseForCleanup.data.held_buttons) -notcontains 'right') { throw 'Could not stage a held mouse button for end_session cleanup.' }
     $ended = Invoke-WcuTool -Name 'end_session'
-    if (-not $ended.ok -or $ended.released_keys -ne 1) { throw 'Session did not release its remaining held key cleanly.' }
+    if (-not $ended.ok -or $ended.released_keys -ne 1 -or $ended.released_buttons -ne 1) { throw 'Session did not release its remaining held key and mouse button cleanly.' }
 
     [ordered]@{
         ok = $true
@@ -397,7 +422,10 @@ try {
         image_screenshot_space_mapping = $imageWait.matched
         held_key_roundtrip = $shiftDownWait.matched -and $shiftUpWait.matched
         implied_shift_repeat = $uppercaseWait.matched
+        held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched
+        configurable_button_drag = $rightDragWait.matched
         end_session_released_keys = $ended.released_keys
+        end_session_released_buttons = $ended.released_buttons
         recreated_window_recovered = $true
         window_handle_changed = $windowHandleChanged
     } | ConvertTo-Json -Depth 6

@@ -120,24 +120,36 @@ public sealed class InputService
     ];
 
     private readonly Dictionary<ushort, HeldKey> _heldKeys = [];
+    private readonly Dictionary<string, MouseButtonStroke> _heldMouseButtons = new(StringComparer.OrdinalIgnoreCase);
 
     public void Click(int x, int y, string button = "left", int count = 1)
     {
         if (count is < 1 or > 4) throw new ArgumentOutOfRangeException(nameof(count));
-        NativeMethods.SetCursorPos(x, y);
-        var (down, up) = button.ToLowerInvariant() switch
-        {
-            "left" or "l" => (MouseeventfLeftdown, MouseeventfLeftup),
-            "right" or "r" => (MouseeventfRightdown, MouseeventfRightup),
-            "middle" or "m" => (MouseeventfMiddledown, MouseeventfMiddleup),
-            _ => throw new ArgumentException("button must be left, right, or middle")
-        };
+        var stroke = ToMouseButton(button);
+        if (_heldMouseButtons.ContainsKey(stroke.Name))
+            throw new InvalidOperationException($"Cannot click {stroke.Name} while that mouse button is held. Release it with mouse_up first.");
         for (var i = 0; i < count; i++)
         {
-            SendMouse(down);
-            SendMouse(up);
+            MouseDown(x, y, stroke.Name);
+            MouseUp(x, y, stroke.Name);
             if (i + 1 < count) Thread.Sleep(70);
         }
+    }
+
+    public void MouseDown(int x, int y, string button = "left")
+    {
+        var stroke = ToMouseButton(button);
+        EnsureCursorPosition(x, y);
+        if (_heldMouseButtons.ContainsKey(stroke.Name)) return;
+        SendMouse(stroke.Down, stroke.Data);
+        _heldMouseButtons[stroke.Name] = stroke;
+    }
+
+    public void MouseUp(int x, int y, string button = "left")
+    {
+        var stroke = ToMouseButton(button);
+        EnsureCursorPosition(x, y);
+        ReleaseMouseButton(stroke);
     }
 
     public (int X, int Y) PointerPosition()
@@ -167,20 +179,20 @@ public sealed class InputService
         }
     }
 
-    public void Drag(int fromX, int fromY, int toX, int toY, int durationMs = 300)
+    public void Drag(int fromX, int fromY, int toX, int toY, int durationMs = 300, string button = "left")
     {
-        NativeMethods.SetCursorPos(fromX, fromY);
-        SendMouse(MouseeventfLeftdown);
-        var steps = Math.Clamp(durationMs / 12, 4, 100);
-        for (var i = 1; i <= steps; i++)
+        var stroke = ToMouseButton(button);
+        if (_heldMouseButtons.ContainsKey(stroke.Name))
+            throw new InvalidOperationException($"Cannot start a self-contained drag while {stroke.Name} is already held. Use move_pointer followed by mouse_up for an in-progress hold.");
+        MouseDown(fromX, fromY, stroke.Name);
+        try
         {
-            var progress = i / (double)steps;
-            NativeMethods.SetCursorPos(
-                (int)Math.Round(fromX + (toX - fromX) * progress),
-                (int)Math.Round(fromY + (toY - fromY) * progress));
-            Thread.Sleep(Math.Max(1, durationMs / steps));
+            MovePointer(toX, toY, Math.Clamp(durationMs, 0, 10_000));
         }
-        SendMouse(MouseeventfLeftup);
+        finally
+        {
+            ReleaseMouseButton(stroke);
+        }
     }
 
     public void Scroll(int x, int y, int vertical, int horizontal = 0)
@@ -292,6 +304,36 @@ public sealed class InputService
 
     public IReadOnlyList<string> HeldKeys => _heldKeys.Values.Select(item => item.Name).ToArray();
 
+    public int ReleaseAllMouseButtons()
+    {
+        var held = _heldMouseButtons.Values.Reverse().ToArray();
+        if (held.Length == 0) return 0;
+        Exception? failure = null;
+        var released = 0;
+        foreach (var item in held)
+        {
+            try
+            {
+                ReleaseMouseButton(item);
+                released++;
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+        if (failure is not null) throw new InvalidOperationException($"Failed to release {_heldMouseButtons.Count} held mouse button(s).", failure);
+        return released;
+    }
+
+    public IReadOnlyList<string> HeldMouseButtons => _heldMouseButtons.Keys.ToArray();
+
+    internal static PlannedMouseButton PlanMouseButton(string button)
+    {
+        var stroke = ToMouseButton(button);
+        return new PlannedMouseButton(stroke.Name, stroke.Down, stroke.Up, stroke.Data);
+    }
+
     public (int X, int Y) WindowPoint(WindowDescriptor window, int x, int y, bool relative) =>
         relative ? (window.Bounds.X + x, window.Bounds.Y + y) : (x, y);
 
@@ -310,6 +352,16 @@ public sealed class InputService
         }
         throw new ArgumentException($"Unsupported key name: {key}");
     }
+
+    private static MouseButtonStroke ToMouseButton(string button) => button.ToLowerInvariant() switch
+    {
+        "left" or "l" or "primary" => new MouseButtonStroke("left", MouseeventfLeftdown, MouseeventfLeftup, 0),
+        "right" or "r" or "secondary" => new MouseButtonStroke("right", MouseeventfRightdown, MouseeventfRightup, 0),
+        "middle" or "m" or "auxiliary" => new MouseButtonStroke("middle", MouseeventfMiddledown, MouseeventfMiddleup, 0),
+        "x1" or "back" => new MouseButtonStroke("x1", MouseeventfXdown, MouseeventfXup, Xbutton1),
+        "x2" or "forward" => new MouseButtonStroke("x2", MouseeventfXdown, MouseeventfXup, Xbutton2),
+        _ => throw new ArgumentException("button must be left, right, middle, x1, or x2")
+    };
 
     private static IEnumerable<KeyStroke> ImpliedModifiers(KeyStroke stroke)
     {
@@ -353,6 +405,13 @@ public sealed class InputService
         EnsureSent([input]);
     }
 
+    private void ReleaseMouseButton(MouseButtonStroke stroke)
+    {
+        if (_heldMouseButtons.TryGetValue(stroke.Name, out var held)) stroke = held;
+        SendMouse(stroke.Up, stroke.Data);
+        _heldMouseButtons.Remove(stroke.Name);
+    }
+
     private static void SendKeyboard(ushort virtualKey, char scanCode, uint flags)
     {
         var input = new Input
@@ -380,5 +439,7 @@ public sealed class InputService
 
     private sealed record KeyStroke(ushort VirtualKey, int ModifierMask, bool Extended);
     private sealed record HeldKey(string Name, KeyStroke Stroke);
+    private sealed record MouseButtonStroke(string Name, uint Down, uint Up, uint Data);
     internal sealed record PlannedKey(ushort VirtualKey, bool Extended);
+    internal sealed record PlannedMouseButton(string Name, uint Down, uint Up, uint Data);
 }

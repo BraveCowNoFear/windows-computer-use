@@ -61,6 +61,8 @@ public sealed class BrokerDispatcher : IDisposable
                 "find_image" => FindImage(args),
                 "move_pointer" => MovePointer(args),
                 "click" => Click(args),
+                "mouse_down" => MouseDown(args),
+                "mouse_up" => MouseUp(args),
                 "press_key" => PressKey(args),
                 "key_down" => KeyDown(args),
                 "key_up" => KeyUp(args),
@@ -84,13 +86,14 @@ public sealed class BrokerDispatcher : IDisposable
 
     public void Dispose()
     {
+        try { _input.ReleaseAllMouseButtons(); } catch { }
         try { _input.ReleaseAllKeys(); } catch { }
         _uia.Dispose();
     }
 
     private static bool NeedsUiLock(string method) => method is
         "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or
-        "move_pointer" or "click" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
+        "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session";
 
     private object Launch(JsonElement args)
     {
@@ -407,6 +410,44 @@ public sealed class BrokerDispatcher : IDisposable
             });
     }
 
+    private ActionResult MouseDown(JsonElement args)
+    {
+        var resolved = _windows.Resolve(args);
+        var beforeCapture = ValidateScreenshot(args, resolved);
+        var window = _windows.Activate(resolved);
+        var point = ResolvePoint(args, window, beforeCapture, "x", "y");
+        var button = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+        var before = string.Join('+', _input.HeldMouseButtons);
+        _input.MouseDown(point.X, point.Y, button);
+        _screenshots.Clear();
+        var after = string.Join('+', _input.HeldMouseButtons);
+        return new ActionResult(
+            true,
+            "mouse_down",
+            "sendinput-mouse-state",
+            new ActionVerification(_input.HeldMouseButtons.Contains(button), "held-mouse-state", before, after),
+            new { x = point.X, y = point.Y, button, held_buttons = _input.HeldMouseButtons, window_id = window.Id });
+    }
+
+    private ActionResult MouseUp(JsonElement args)
+    {
+        var resolved = _windows.Resolve(args);
+        var beforeCapture = ValidateScreenshot(args, resolved);
+        var window = _windows.Activate(resolved);
+        var point = ResolvePoint(args, window, beforeCapture, "x", "y");
+        var button = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+        var before = string.Join('+', _input.HeldMouseButtons);
+        _input.MouseUp(point.X, point.Y, button);
+        _screenshots.Clear();
+        var after = string.Join('+', _input.HeldMouseButtons);
+        return new ActionResult(
+            true,
+            "mouse_up",
+            "sendinput-mouse-state",
+            new ActionVerification(!_input.HeldMouseButtons.Contains(button), "held-mouse-state", before, after),
+            new { x = point.X, y = point.Y, button, held_buttons = _input.HeldMouseButtons, window_id = window.Id });
+    }
+
     private ActionResult PressKey(JsonElement args)
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
@@ -478,7 +519,8 @@ public sealed class BrokerDispatcher : IDisposable
         var window = _windows.Activate(resolved);
         var from = ResolvePoint(args, window, beforeCapture, "from_x", "from_y");
         var to = ResolvePoint(args, window, beforeCapture, "to_x", "to_y");
-        _input.Drag(from.X, from.Y, to.X, to.Y, args.Int("duration_ms", 300));
+        var button = InputService.PlanMouseButton(args.String("button") ?? "left").Name;
+        _input.Drag(from.X, from.Y, to.X, to.Y, args.Int("duration_ms", 300), button);
         _screenshots.Clear();
         Thread.Sleep(100);
         var after = _windows.Resolve(window.Id);
@@ -488,7 +530,7 @@ public sealed class BrokerDispatcher : IDisposable
             "drag",
             "sendinput",
             new ActionVerification(after.IsForeground, "window-and-screenshot-reobserve", beforeCapture?.Sha256, afterCapture.Sha256),
-            new { from, to, after_screenshot_id = afterCapture.Id, visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256 });
+            new { from, to, button, held_buttons = _input.HeldMouseButtons, after_screenshot_id = afterCapture.Id, visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256 });
     }
 
     private object Activate(JsonElement args)
@@ -516,12 +558,19 @@ public sealed class BrokerDispatcher : IDisposable
 
     private object EndSession()
     {
-        var releasedKeys = _input.ReleaseAllKeys();
+        var errors = new List<Exception>();
+        var buttonsBefore = _input.HeldMouseButtons.Count;
+        try { _input.ReleaseAllMouseButtons(); } catch (Exception exception) { errors.Add(exception); }
+        var releasedButtons = buttonsBefore - _input.HeldMouseButtons.Count;
+        var keysBefore = _input.HeldKeys.Count;
+        try { _input.ReleaseAllKeys(); } catch (Exception exception) { errors.Add(exception); }
+        var releasedKeys = keysBefore - _input.HeldKeys.Count;
         _uia.ClearSession();
         _windows.ClearSession();
         _screenshots.Clear();
         _observations.Clear();
-        return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow, released_keys = releasedKeys };
+        if (errors.Count > 0) throw new AggregateException("One or more held inputs could not be released while ending the session.", errors);
+        return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow, released_keys = releasedKeys, released_buttons = releasedButtons };
     }
 
     private CaptureResult RememberCapture(WindowDescriptor? window, CaptureResult capture)

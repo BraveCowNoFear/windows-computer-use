@@ -28,20 +28,22 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `find_text` | Fresh-capture a window and return matching OCR line/word bounds, centers, and screenshot id. |
 | `find_image` | Fresh-capture a window and locate an exact-scale local PNG/JPEG template, returning scored screenshot/screen bounds, centers, and screenshot id. |
 | `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
-| `click` | Click window-relative or screen coordinates with left, right, or middle button. |
+| `click` | Click window-relative, screen, or screenshot coordinates with left, right, middle, X1, or X2 button. |
+| `mouse_down` | Move to a point, hold one of five mouse buttons across later actions, and track it for guaranteed cleanup. |
+| `mouse_up` | Move to a point and release one explicitly held mouse button. |
 | `press_key` | Press/release a `+`-separated chord with implied printable modifiers and optional repeat/interval timing. Covers navigation, F1-F24, left/right modifiers, numpad, browser, media, and volume keys. |
 | `key_down` | Hold one explicit named key across later actions and track it for guaranteed cleanup. |
 | `key_up` | Release one explicitly held key. |
 | `type_text` | Type arbitrary Unicode into the focused control. |
 | `scroll` | Send vertical and horizontal wheel input at a selected point. |
-| `drag` | Drag between physical points with a configurable duration. |
+| `drag` | Perform a self-contained left/right/middle/X1/X2 drag between physical points with configurable duration. |
 | `set_window_state` | Minimize, maximize, or restore one window and verify native state. |
 | `activate_window` | Restore and foreground one exact window. |
-| `end_session` | Clear element caches and end the logical control session. |
+| `end_session` | Release tracked mouse buttons and keys, clear element caches, and end the logical control session. |
 
 Controls include `parentId`, `depth`, `childCount`, `value`, `isReadOnly`, `isSelected`, `toggleState`, `expandCollapseState`, and horizontal/vertical scroll percentages when their UIA patterns are supported. Window observations also return `focusedControlId`, `documentText`, `selectedText`, and `selectedControlIds`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session; `observe_changes` compares these semantic states as well as identity, layout, focus, and patterns.
 
-Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Screenshot coordinates are mapped from the capture's DWM-visible screen origin. A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
+Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Screenshot coordinates are mapped from the capture's DWM-visible screen origin. A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Self-contained click/scroll/drag actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification; mouse down/up actions return the tracked held-button state.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.
 
@@ -51,4 +53,4 @@ An exact `window_id` is resolved directly as an HWND even when that window is te
 
 For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be preempted, but an observation completed after `timeout_ms` is not reported as a successful match.
 
-`press_key` interprets printable characters using the active Windows keyboard layout, including implied modifier bits (for example `A` supplies Shift); use `plus` because `+` separates chord tokens. `key_down`/`key_up` require explicit names, so hold `shift` separately before a modified printable key. Any tracked key still held at `end_session` or broker disposal is released automatically.
+`press_key` interprets printable characters using the active Windows keyboard layout, including implied modifier bits (for example `A` supplies Shift); use `plus` because `+` separates chord tokens. `key_down`/`key_up` require explicit names, so hold `shift` separately before a modified printable key. Mouse buttons use canonical `left`, `right`, `middle`, `x1`, and `x2` names. A self-contained click/drag rejects a button already held by `mouse_down`; continue that gesture with `move_pointer` and finish with `mouse_up`. Any tracked mouse buttons and keys still held at `end_session` or broker disposal are released automatically.

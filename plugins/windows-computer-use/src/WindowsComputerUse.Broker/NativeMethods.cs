@@ -25,8 +25,12 @@ internal static class NativeMethods
     internal const uint MouseeventfRightup = 0x0010;
     internal const uint MouseeventfMiddledown = 0x0020;
     internal const uint MouseeventfMiddleup = 0x0040;
+    internal const uint MouseeventfXdown = 0x0080;
+    internal const uint MouseeventfXup = 0x0100;
     internal const uint MouseeventfWheel = 0x0800;
     internal const uint MouseeventfHwheel = 0x01000;
+    internal const uint Xbutton1 = 0x0001;
+    internal const uint Xbutton2 = 0x0002;
     internal const uint DwmwaExtendedFrameBounds = 9;
 
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);

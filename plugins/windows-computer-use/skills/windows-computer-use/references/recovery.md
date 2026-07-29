@@ -18,7 +18,7 @@ If the target is minimized, call `set_window_state` with `restore` first. Otherw
 
 Stop coordinate retries. Inspect focus, use a stable semantic control id with `enter_text`, then wait for the expected UI state. All state-changing tools activate their selected window before input.
 
-If a held key outlives the intended gesture, call `key_up` with the same explicit key name. `end_session` releases every tracked key, and broker shutdown provides the same final cleanup backstop.
+If a held key or mouse button outlives the intended gesture, call `key_up` or `mouse_up` with the same explicit name. `end_session` releases every tracked mouse button before every tracked key, and broker shutdown provides the same final cleanup backstop.
 
 ## UI lock busy
 

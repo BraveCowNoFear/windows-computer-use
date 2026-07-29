@@ -191,11 +191,13 @@ try {
     $atomicPasteFailureRestore = $true
 
     $expectedCopiedText = $atomicPasteText + $atomicAppendText
+    $script:stage = 'atomic-copy-all'
     $copyAll = Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; selection = 'all'; timeout_ms = 2000 }
     if (-not $copyAll.ok -or -not $copyAll.data.clipboard_restored -or $copyAll.data.text -ne $expectedCopiedText -or $copyAll.verification.strategy -ne 'clipboard-sequence-and-uia-selection') {
         throw 'Atomic select-all copy did not return the UIA-selected text and restore the clipboard.'
     }
     $atomicCopyAll = $true
+    $script:stage = 'atomic-copy-current'
     $copyCurrent = Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; selection = 'current'; timeout_ms = 2000 }
     if (-not $copyCurrent.ok -or -not $copyCurrent.data.clipboard_restored -or $copyCurrent.data.text -ne $expectedCopiedText) {
         throw 'Atomic current-selection copy did not return the selected text and restore the clipboard.'
@@ -210,6 +212,7 @@ try {
     $copyFailureTarget = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
     if ($copyFailureTarget.count -ne 1) { throw 'Could not resolve the deterministic copy failure target.' }
     $copyFailureObserved = $false
+    $script:stage = 'atomic-copy-failure'
     try {
         Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $copyFailureTarget.controls[0].id; selection = 'current'; timeout_ms = 150 } | Out-Null
     } catch {
@@ -671,16 +674,14 @@ try {
         if (-not $occluder.WaitForExit(1500)) { try { $occluder.Kill() } catch {} }
         $occluder.Dispose()
     }
-    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $capturePath)) {
-        Remove-Item -LiteralPath $capturePath -Force
-    }
-    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $visualSourcePath)) {
-        Remove-Item -LiteralPath $visualSourcePath -Force
-    }
-    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $templatePath)) {
-        Remove-Item -LiteralPath $templatePath -Force
-    }
-    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $scaledTemplatePath)) {
-        Remove-Item -LiteralPath $scaledTemplatePath -Force
+    $ownedArtifactPaths = @($capturePath, $visualSourcePath, $templatePath, $scaledTemplatePath)
+    if (-not $KeepArtifacts) {
+        foreach ($ownedArtifactPath in $ownedArtifactPaths) {
+            if (Test-Path -LiteralPath $ownedArtifactPath) { Remove-Item -LiteralPath $ownedArtifactPath -Force }
+        }
+        $remainingOwnedArtifacts = @($ownedArtifactPaths | Where-Object { Test-Path -LiteralPath $_ })
+        if ($remainingOwnedArtifacts.Count -ne 0) {
+            throw "E2E cleanup left owned artifacts: $($remainingOwnedArtifacts -join ', ')"
+        }
     }
 }

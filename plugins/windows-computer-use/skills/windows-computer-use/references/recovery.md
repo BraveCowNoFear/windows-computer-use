@@ -20,6 +20,10 @@ Stop coordinate retries. Inspect focus, use a stable semantic control id with `e
 
 If a held key or mouse button outlives the intended gesture, call `key_up` or `mouse_up` with the same explicit name. `end_session` releases every tracked mouse button before every tracked key, and broker shutdown provides the same final cleanup backstop.
 
+## Broker deadline or transport reset
+
+The MCP gives each native call a 180-second transport deadline by default. `WCU_BROKER_CALL_TIMEOUT_MS=0` disables it; another non-negative value changes it. When a UI provider, named pipe, or response becomes unusable, the MCP never replays the interrupted action because it may already have taken effect. It replaces the broker, conservatively releases plugin-tracked held keys/buttons, and returns an error that marks the target state unknown. Start recovery with `list_windows` plus a fresh semantic/visual observation. If the interrupted method touched the clipboard, verify current clipboard state too because broker replacement invalidates session-local backup ids.
+
 ## Desktop screenshot rejected
 
 Capture the virtual desktop again. Desktop screenshot ids are invalidated after input and rejected when they expire or when a monitor is connected, disconnected, repositioned, or changes resolution. Use `coordinate_space=screenshot` without a window selector for a bound desktop action. Because mouse-down invalidates its source image, finish a cross-action hold with explicit `coordinate_space=screen` coordinates.

@@ -91,29 +91,22 @@ public sealed class ClipboardService : IDisposable
         var snapshot = preservePrevious ? RunSta(CaptureSnapshot) : null;
         try
         {
-            RunSta(() =>
+            ClipboardState current;
+            try
             {
-                Retry(() =>
-                {
-                    var data = new DataObject();
-                    data.SetData(DataFormats.UnicodeText, false, text);
-                    Clipboard.SetDataObject(data, true, 10, 50);
-                    return true;
-                });
-                return true;
-            });
-            var current = RunSta(ReadState);
-            if (!current.ContainsText || !string.Equals(current.Text, text, StringComparison.Ordinal))
+                current = PublishTextAndVerify(text);
+            }
+            catch (Exception verificationError)
             {
                 if (snapshot is not null)
                 {
                     try { _ = RestoreAndVerify(snapshot); }
                     catch (Exception rollbackError)
                     {
-                        throw new AggregateException("Clipboard text verification failed and the preserved clipboard could not be verified after rollback.", rollbackError);
+                        throw new AggregateException("Clipboard text verification failed and the preserved clipboard could not be verified after rollback.", verificationError, rollbackError);
                     }
                 }
-                throw new InvalidOperationException("Clipboard text verification failed after write.");
+                throw;
             }
 
             string? backupId = null;
@@ -129,6 +122,38 @@ public sealed class ClipboardService : IDisposable
         {
             snapshot?.Dispose();
         }
+    }
+
+    private static ClipboardState PublishTextAndVerify(string text)
+    {
+        var deadline = Environment.TickCount64 + 2_000;
+        ClipboardState current = new(false, null, []);
+        do
+        {
+            RunSta(() =>
+            {
+                Retry(() =>
+                {
+                    var data = new DataObject();
+                    data.SetData(DataFormats.UnicodeText, false, text);
+                    Clipboard.SetDataObject(data, true, 10, 50);
+                    return true;
+                });
+                return true;
+            });
+            current = RunSta(ReadState);
+            if (current.ContainsText && string.Equals(current.Text, text, StringComparison.Ordinal))
+            {
+                var sequence = NativeMethods.GetClipboardSequenceNumber();
+                Thread.Sleep(150);
+                var stable = RunSta(ReadState);
+                if (sequence == NativeMethods.GetClipboardSequenceNumber() &&
+                    stable.ContainsText && string.Equals(stable.Text, text, StringComparison.Ordinal)) return stable;
+                current = stable;
+            }
+        } while (Environment.TickCount64 < deadline);
+        throw new InvalidOperationException(
+            $"Clipboard text did not remain stable after write; contains_text={current.ContainsText}, normalized_sha256={NormalizedHash(current.Text)}.");
     }
 
     public object Restore(string backupId)

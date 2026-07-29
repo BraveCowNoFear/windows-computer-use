@@ -9,5 +9,7 @@ if (-not (Test-Path -LiteralPath $dotnet)) { $dotnet = 'dotnet' }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & (Join-Path $PSScriptRoot 'e2e-test.ps1') -RequireWgc
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& (Join-Path $PSScriptRoot 'broker-recovery-smoke.ps1')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & (Join-Path $PSScriptRoot 'mcp-launch-smoke.ps1')
 exit $LASTEXITCODE

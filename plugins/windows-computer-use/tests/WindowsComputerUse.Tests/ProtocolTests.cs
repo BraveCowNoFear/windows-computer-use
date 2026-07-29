@@ -7,6 +7,24 @@ namespace WindowsComputerUse.Tests;
 
 public sealed class ProtocolTests
 {
+    [Theory]
+    [InlineData(null, 180000)]
+    [InlineData("", 180000)]
+    [InlineData("250", 250)]
+    [InlineData("0", null)]
+    public void BrokerCallTimeout_IsConfigurableAndCanBeDisabled(string? configured, int? expected)
+    {
+        Assert.Equal(expected, BrokerClient.ParseCallTimeout(configured));
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("forever")]
+    public void BrokerCallTimeout_RejectsInvalidValues(string configured)
+    {
+        Assert.Throws<InvalidOperationException>(() => BrokerClient.ParseCallTimeout(configured));
+    }
+
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {

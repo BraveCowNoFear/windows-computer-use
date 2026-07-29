@@ -127,6 +127,15 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Atomic copy reuses the full-format transaction and returns only after restoration. Restore now requires the original text/formats and `GetClipboardSequenceNumber` to remain unchanged for 150 ms; delayed clipboard publication causes the snapshot to be re-published instead of escaping after success.
 - Three consecutive E2E runs cover select-all copy, current-selection copy, and intentional copy timeout from a non-text button, with the original Chromium text/HTML/custom formats verified after every path. Adding expected-error coverage exposed a harness deadlock: redirected MCP stderr was never read, so broker stack traces filled the pipe. E2E, real-app, and extended-app runners now drain stderr asynchronously.
 
+### v0.18.0 — bounded broker recovery without blind replay
+
+- MCP-to-Broker calls now have a configurable 180-second deadline (`WCU_BROKER_CALL_TIMEOUT_MS`; `0` disables it). A deadline, broken pipe, malformed payload, or response-id mismatch never retries the uncertain action; it replaces the Broker and requires a fresh observation.
+- MCP tracks successful cross-call `key_down`/`mouse_down` state and conservatively includes an in-flight down/drag when recovery is uncertain. A fresh Broker receives an internal release request before later user actions; failed recovery remains pending rather than silently continuing.
+- A deterministic fault-injection gate stages real Ctrl and left-button holds, forces a 250 ms `wait_for_window` transport deadline, proves the Broker PID changes while MCP stays alive, verifies both native input states are up, and successfully calls `list_windows` afterward. Twenty-five unit tests cover deadline defaults, override, disable, and invalid configuration alongside all prior contracts.
+- Hard Broker termination invalidates its in-memory clipboard backup. Timeout/transport errors therefore explicitly require clipboard verification when the interrupted action used the clipboard; the plugin does not claim crash-atomic clipboard restoration.
+- Full-gate repetition exposed an intermittent first Ctrl+C delivery miss. `copy_text` now divides its requested sequence-change window across two attempts and performs one semantic-refocus retry only after the first attempt proves no clipboard publication; unknown-state actions are still never replayed.
+- Back-to-back E2E then exposed delayed clipboard replacement after an otherwise successful write. Text publication now requires the content and native sequence number to remain stable for 150 ms and re-publishes for up to two seconds, matching the restore path instead of relying on an immediate readback.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

@@ -65,6 +65,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "read_clipboard_text" => _clipboard.ReadText(),
                 "write_clipboard_text" => WriteClipboardText(args),
                 "restore_clipboard" => RestoreClipboard(args),
+                "recover_input_state" => RecoverInputState(args),
                 "move_pointer" => MovePointer(args),
                 "click" => Click(args),
                 "mouse_down" => MouseDown(args),
@@ -100,7 +101,7 @@ public sealed class BrokerDispatcher : IDisposable
 
     private static bool NeedsUiLock(string method) => method is
         "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
-        "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session";
+        "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
     {
@@ -120,6 +121,33 @@ public sealed class BrokerDispatcher : IDisposable
     {
         var point = _input.PointerPosition();
         return new { x = point.X, y = point.Y, coordinate_space = "physical-screen-pixels" };
+    }
+
+    private object RecoverInputState(JsonElement args)
+    {
+        var keys = args.TryGetProperty("keys", out var keyValues) && keyValues.ValueKind == JsonValueKind.Array
+            ? keyValues.EnumerateArray().Where(value => value.ValueKind == JsonValueKind.String).Select(value => value.GetString()).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).Reverse().ToArray()
+            : [];
+        var buttons = args.TryGetProperty("buttons", out var buttonValues) && buttonValues.ValueKind == JsonValueKind.Array
+            ? buttonValues.EnumerateArray().Where(value => value.ValueKind == JsonValueKind.String).Select(value => value.GetString()).Where(value => !string.IsNullOrWhiteSpace(value)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).Reverse().ToArray()
+            : [];
+        var failures = new List<string>();
+        var releasedKeys = 0;
+        var releasedButtons = 0;
+        foreach (var key in keys)
+        {
+            try { _input.KeyUp(key); releasedKeys++; }
+            catch (Exception error) { failures.Add($"key {key}: {error.Message}"); }
+        }
+        var pointer = _input.PointerPosition();
+        foreach (var button in buttons)
+        {
+            try { _input.MouseUp(pointer.X, pointer.Y, button); releasedButtons++; }
+            catch (Exception error) { failures.Add($"button {button}: {error.Message}"); }
+        }
+        if (failures.Count > 0)
+            throw new InvalidOperationException($"Input recovery was incomplete: {string.Join("; ", failures)}");
+        return new { ok = true, released_keys = releasedKeys, released_buttons = releasedButtons };
     }
 
     private async Task<object> WaitForWindowAsync(JsonElement args, CancellationToken cancellationToken)
@@ -326,7 +354,29 @@ public sealed class BrokerDispatcher : IDisposable
             var expected = selectionObservation.FocusedControlId == before.Id ? selectionObservation.SelectedText : null;
             if (selection == "all" && expected is null && before.Value is { Length: < 4096 }) expected = before.Value;
 
-            var captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), timeoutMs);
+            var copyAttempts = 1;
+            ClipboardTextCapture captured;
+            try
+            {
+                captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), Math.Max(100, timeoutMs / 2));
+            }
+            catch (TimeoutException firstTimeout)
+            {
+                copyAttempts++;
+                _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
+                if (selection == "all") _input.PressChord("ctrl+a");
+                Thread.Sleep(80);
+                try
+                {
+                    captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), Math.Max(100, timeoutMs / 2));
+                }
+                catch (TimeoutException secondTimeout)
+                {
+                    throw new TimeoutException(
+                        "The copy action did not change the clipboard after one semantic refocus retry.",
+                        new AggregateException(firstTimeout, secondTimeout));
+                }
+            }
             if (expected is { Length: < 20_000 } && !string.Equals(captured.Text, expected, StringComparison.Ordinal))
                 throw new InvalidOperationException("Copied clipboard text did not equal the selected UIA text.");
             if (expected is { Length: 20_000 } && !captured.Text.StartsWith(expected, StringComparison.Ordinal))
@@ -353,6 +403,7 @@ public sealed class BrokerDispatcher : IDisposable
                     normalized_sha256 = captured.NormalizedSha256,
                     formats = captured.Formats,
                     clipboard_restored = true,
+                    copy_attempts = copyAttempts,
                     selection,
                     control = after
                 });

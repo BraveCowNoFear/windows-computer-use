@@ -23,9 +23,9 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
 | `observe_changes` | Compare against a cached observation id and return only added, removed, or changed controls. |
 | `find_controls` | Filter controls by semantic properties. |
-| `invoke` | Invoke, select, toggle, expand, or center-click one semantic control. |
-| `perform_secondary_action` | Explicitly focus/raise, select, add/remove selection, toggle, expand/collapse, or UIA-scroll one semantic control. |
-| `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput. |
+| `invoke` | Invoke, select, toggle, expand, or center-click one semantic control, then return a fresh screenshot and visual diff. |
+| `perform_secondary_action` | Explicitly focus/raise, select, add/remove selection, toggle, expand/collapse, or UIA-scroll one semantic control, then return visual evidence. |
+| `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput, then return visual evidence. |
 | `paste_text` | Preserve all direct clipboard formats, focus a semantic target, replace or append through real Ctrl+V, verify UIA Value when exposed, and restore on success or failure. |
 | `copy_text` | Preserve all direct clipboard formats, focus a semantic target, copy the current selection or select-all through real Ctrl+C, return Unicode text, and restore on success or failure. |
 | `wait_for_ui` | Wait for existence/visibility/focus, Value equality/containment, selected/unselected, toggle on/off/indeterminate, expanded/collapsed, or read-only/editable state. |
@@ -68,6 +68,8 @@ Screenshot-bound `click`, `mouse_down`, `mouse_up`, `scroll`, and self-contained
 `ocr` and `find_text` also accept a fresh cached `screenshot_id`, including a cropped or nested-cropped id. They recognize those exact PNG bytes, revalidate the original window/desktop identity and `max_age_ms`, and return the same screenshot id/bounds so `find_text` centers remain directly actionable. Omit all selectors when using an id. `ocr path` is mutually exclusive with an id and selectors and returns recognition only; without an id/path, both tools preserve their fresh window/desktop capture behavior.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.
+
+`invoke`, `perform_secondary_action`, and `enter_text` additionally return `data.after_screenshot_id`, `data.visual_changed`, and exact `data.visual_diff` while preserving that semantic verification. If the completed action closes the source window, the fresh id belongs to the virtual desktop and the diff reports `comparable=false` with `reason=source-window-unavailable`; continue from that real post-action frame instead of replaying the action.
 
 Visual tools reject minimized windows because WGC/PrintWindow output is not dependable in that state. Call `set_window_state` with `restore`, wait for the verified result, and observe again. Use `ownerWindowId`/`rootOwnerWindowId` from `list_windows` or `wait_for_window` to keep transient dialogs associated with the intended main window.
 

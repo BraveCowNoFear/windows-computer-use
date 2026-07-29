@@ -10,7 +10,7 @@ The plugin runs in **full-control mode**. It does not maintain its own app allow
 
 - UI Automation 3 inspection through FlaUI, including names, AutomationIds, types, bounds, focus, Value/read-only/selection/toggle/expand/scroll states, document text, and selected text.
 - Hierarchical UIA descriptors with parent/depth/child metadata, path-stable control ids, automatic stale-element re-location, and incremental observation diffs.
-- Semantic `invoke`, explicit `perform_secondary_action` focus/selection/toggle/expand/collapse/scroll actions, and Unicode `enter_text`, with native SendInput fallback.
+- Semantic `invoke`, explicit `perform_secondary_action` focus/selection/toggle/expand/collapse/scroll actions, and Unicode `enter_text`, with native SendInput fallback and automatic before/after visual evidence.
 - Physical pointer-position observation, smooth move/hover, five-button mouse click/drag/wheel, tracked cross-action mouse-down/mouse-up holds, repeated keyboard chords with implied modifiers, tracked key-down/key-up holds, app launching, window activation, and virtual-desktop coordinates.
 - Physical multi-monitor topology with per-display bounds, work area, effective DPI, primary flag, and scale percentage.
 - Picker-free window PNG capture through native Windows Graphics Capture plus full virtual-desktop screen copy; both return fresh screenshot ids that can ground later physical input.
@@ -56,6 +56,8 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 # New keyboard visual paths only (requires an existing Release build):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario KeyboardVisual -RequireWgc
+# New semantic-action visual paths only:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\e2e-test.ps1 -Scenario SemanticVisual -RequireWgc
 ```
 
 `test.ps1` first validates the Codex manifest, marketplace path, MCP launcher, skill/assets, and all PowerShell syntax. It then restores dependencies, builds and publishes the broker/MCP, runs the xUnit suite, opens the isolated WinForms test window, drives it through the real MCP, hard-gates hierarchical UIA/state diffs, Value and selected-text exposure, semantic secondary actions, actionable window/desktop region crops, region-scoped PNG change and continuous-stability waits, selected-window plus unchanged-current-foreground keyboard input, held/implied-modifier state, raw plus atomic Ctrl+V/Ctrl+C round trips (including forced paste/copy failure cleanup), Windows Graphics Capture, OCR and image-template grounding, snapshot freshness, stale-coordinate rejection, and owned-artifact cleanup, closes the test app, and exits non-zero on any failed gate. A separate fault-injection gate forces a 2000 ms broker deadline against a 5000 ms native wait, proves the native process is replaced without terminating MCP, releases a staged Ctrl/mouse hold, and verifies the next tool call. Redirected MCP diagnostics are drained asynchronously so expected-error coverage cannot fill the stderr pipe and deadlock the harness.
@@ -105,6 +107,8 @@ Pass that same fresh full or region `screenshot_id` to `ocr` or `find_text` to r
 Before acting on an ambiguous screen pixel, `window_from_point` can map physical x/y to both the actual native child HWND/class/title under that pixel and its top-level root window descriptor. This gives the agent a stable `window_id` for UIA inspection or confirms which app a later mouse action would reach, without moving the pointer, activating, or clicking.
 
 `press_key`, `key_down`, `key_up`, and `type_text` capture before and after every input and return `data.after_screenshot_id`, `data.visual_changed`, and exact `data.visual_diff` while retaining their focus/held-key verification. Window mode compares the selected window; `desktop: true` sends directly to the unchanged current foreground and compares the whole virtual desktop, so it is mutually exclusive with `window_id`, `title`, and `app`. Prefer explicit window mode when the destination is known, and use desktop mode for system shortcuts or an already-established foreground/focus chain. A desktop `key_up` still sends the release if Windows temporarily has no foreground window.
+
+`invoke`, `perform_secondary_action`, and `enter_text` preserve their UIA re-observation verification while also returning `data.after_screenshot_id`, `data.visual_changed`, and exact `data.visual_diff` for the selected window. If a completed semantic action closes its source window, the action remains successful and returns a fresh virtual-desktop screenshot with `comparable=false` and `reason=source-window-unavailable`, so the caller can continue from a real post-action observation.
 
 `set_window_bounds` moves and resizes an exact HWND using physical virtual-desktop pixels rather than title-bar drag guesses. Negative origins are accepted for left/upper monitors. It restores minimized/maximized windows before moving, verifies the exact Win32 outer rectangle, and preserves the existing foreground unless `activate: true` is requested. True multi-monitor placement remains an external hardware-matrix item on this single-monitor development machine.
 

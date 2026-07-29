@@ -232,6 +232,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Window mode compares the selected window; `desktop=true` preserves the current foreground and compares the entire virtual desktop so system-level changes remain visible. Desktop `key_up` keeps its special no-foreground release guarantee to prevent stranded input.
 - The E2E harness now has a `KeyboardVisual` scenario that avoids unrelated prior gates. Its focused 7.7-second real WGC/MCP run proves window and desktop shortcut, Unicode typing, key-down, and key-up visual evidence across all six new paths, with 42-tool protocol identity and clean held state.
 
+### v0.34.0 — 语义动作视觉验证
+
+- `invoke`、`perform_secondary_action` 与 `enter_text` 在保留 UIA 控件重观察主验证的同时，自动抓取动作前后窗口，返回新的 `data.after_screenshot_id`、变化状态与精确 `data.visual_diff`。
+- 已完成动作若关闭来源窗口，不会被误报为失败；Broker 改为返回新的虚拟桌面截图，并以 `source-window-unavailable` 明确标记不可比较，供调用方从真实动作后状态继续。
+- 新增独立 `SemanticVisual` 场景，没有重复旧端到端套件。Release 构建与定向真实 WGC/MCP 运行共 18.9 秒，验证 42 工具握手、Unicode 文本、UIA 开关、语义 Invoke 三条视觉路径均发生可比较变化，关闭来源窗口时正确回退桌面，且会话结束后无按键或鼠标残留。
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

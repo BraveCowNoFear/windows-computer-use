@@ -260,16 +260,14 @@ public sealed class BrokerDispatcher : IDisposable
     private ActionResult Invoke(JsonElement args)
     {
         var window = _windows.Activate(_windows.Resolve(args));
-        try { return _uia.Invoke(window, args.String("control_id"), args); }
-        finally { _screenshots.Clear(); }
+        return RunSemanticAction(window, () => _uia.Invoke(window, args.String("control_id"), args));
     }
 
     private ActionResult EnterText(JsonElement args)
     {
         var text = args.String("text") ?? throw new ArgumentException("text is required");
         var window = _windows.Activate(_windows.Resolve(args));
-        try { return _uia.EnterText(window, args.String("control_id"), args, text, args.Bool("append")); }
-        finally { _screenshots.Clear(); }
+        return RunSemanticAction(window, () => _uia.EnterText(window, args.String("control_id"), args, text, args.Bool("append")));
     }
 
     private ActionResult PasteText(JsonElement args)
@@ -436,8 +434,62 @@ public sealed class BrokerDispatcher : IDisposable
     {
         var action = args.String("action") ?? throw new ArgumentException("action is required");
         var window = _windows.Activate(_windows.Resolve(args));
-        try { return _uia.PerformSecondaryAction(window, args.String("control_id"), args, action); }
-        finally { _screenshots.Clear(); }
+        return RunSemanticAction(window, () => _uia.PerformSecondaryAction(window, args.String("control_id"), args, action));
+    }
+
+    private ActionResult RunSemanticAction(WindowDescriptor window, Func<ActionResult> action)
+    {
+        var baselineCapture = RememberCapture(window, _capture.Capture(window));
+        var baseline = _screenshots[baselineCapture.Id];
+        try
+        {
+            var result = action();
+            _screenshots.Clear();
+            try
+            {
+                var afterWindow = _windows.Resolve(window.Id);
+                var afterCapture = RememberCapture(afterWindow, _capture.Capture(afterWindow));
+                return AddSemanticVisualEvidence(result, baseline, afterCapture);
+            }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+            {
+                var desktopCapture = RememberCapture(null, _capture.Capture(null));
+                return AddSemanticVisualEvidence(result, baseline, desktopCapture, error.Message);
+            }
+        }
+        catch
+        {
+            _screenshots.Clear();
+            throw;
+        }
+    }
+
+    private ActionResult AddSemanticVisualEvidence(
+        ActionResult result,
+        ScreenshotRecord baseline,
+        CaptureResult after,
+        string? unavailableReason = null)
+    {
+        var data = result.Data is null ? new JsonObject() : ToJsonObject(result.Data);
+        data["after_screenshot_id"] = after.Id;
+        if (unavailableReason is null)
+        {
+            data["visual_changed"] = baseline.Sha256 != after.Sha256;
+            data["visual_diff"] = JsonSerializer.SerializeToNode(ActionVisualDiff(baseline, after), ProtocolJson.Options);
+        }
+        else
+        {
+            data["visual_changed"] = null;
+            data["visual_diff"] = JsonSerializer.SerializeToNode(new
+            {
+                comparable = false,
+                reason = "source-window-unavailable",
+                detail = unavailableReason,
+                before_source_bounds = baseline.SourceBounds,
+                after_source_bounds = after.Bounds
+            }, ProtocolJson.Options);
+        }
+        return result with { Data = data };
     }
 
     private object Wait(JsonElement args)

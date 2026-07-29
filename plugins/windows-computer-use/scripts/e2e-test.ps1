@@ -2,7 +2,7 @@ param(
     [switch]$KeepTestWindow,
     [switch]$KeepArtifacts,
     [switch]$RequireWgc,
-    [ValidateSet('All', 'KeyboardVisual')][string]$Scenario = 'All'
+    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual')][string]$Scenario = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -153,6 +153,76 @@ try {
             desktop_unicode_visual = $desktopTyped.data.visual_diff.changed
             desktop_key_state_visual = $desktopDown.data.visual_diff.changed -and $desktopUp.data.visual_diff.changed
             released_keys = $ended.released_keys
+        } | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($Scenario -eq 'SemanticVisual') {
+        $script:stage = 'semantic-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one semantic visual target, found $($target.Count)." }
+        $windowId = [long]$target[0].id
+        $input = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'InputBox'; limit = 2 }
+        $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
+        $button = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
+        if ($input.count -ne 1 -or $toggle.count -ne 1 -or $button.count -ne 1) {
+            throw 'Could not uniquely resolve the semantic visual controls.'
+        }
+
+        $testText = 'Semantic ' + [char]0x89C6 + [char]0x89C9 + ' ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $entered = Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText }
+        if (-not $entered.ok -or -not $entered.verification.verified -or -not $entered.data.after_screenshot_id -or
+            -not $entered.data.visual_diff.comparable -or -not $entered.data.visual_diff.changed) {
+            throw "Semantic text entry omitted changed post-action visual evidence: $($entered | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $textWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $testText; timeout_ms = 1500 }
+        if (-not $textWait.matched) { throw 'Semantic text entry did not reach the UIA Value state.' }
+
+        $toggled = Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; action = 'toggle' }
+        if (-not $toggled.ok -or -not $toggled.verification.verified -or -not $toggled.data.after_screenshot_id -or
+            -not $toggled.data.visual_diff.comparable -or -not $toggled.data.visual_diff.changed) {
+            throw "Semantic toggle omitted changed post-action visual evidence: $($toggled | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $toggleWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_on'; timeout_ms = 1500 }
+        if (-not $toggleWait.matched) { throw 'Semantic toggle did not reach the UIA Toggle state.' }
+
+        $invoked = Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $button.controls[0].id }
+        if (-not $invoked.ok -or -not $invoked.verification.verified -or -not $invoked.data.after_screenshot_id -or
+            -not $invoked.data.visual_diff.comparable -or -not $invoked.data.visual_diff.changed) {
+            throw "Semantic invoke omitted changed post-action visual evidence: $($invoked | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $statusWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = "Saved: $testText"; state = 'exists'; timeout_ms = 1500 }
+        if (-not $statusWait.matched) { throw 'Semantic invoke did not produce the expected saved status.' }
+
+        $dialogLauncher = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'DialogButton'; limit = 2 }
+        if ($dialogLauncher.count -ne 1) { throw 'Could not resolve the dialog launcher for source-window fallback.' }
+        Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $dialogLauncher.controls[0].id } | Out-Null
+        $dialog = Invoke-WcuTool -Name 'wait_for_window' -Arguments @{ title = 'Windows Computer Use Dialog'; owner_window_id = $windowId; state = 'exists'; timeout_ms = 1500 }
+        if (-not $dialog.matched -or @($dialog.windows).Count -ne 1) { throw 'Owned dialog did not appear for source-window fallback.' }
+        $dialogId = [long]$dialog.windows[0].id
+        $dialogClose = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $dialogId; automation_id = 'DialogCloseButton'; limit = 2 }
+        if ($dialogClose.count -ne 1) { throw 'Could not resolve the owned dialog close control.' }
+        $closed = Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $dialogId; control_id = $dialogClose.controls[0].id }
+        if (-not $closed.ok -or -not $closed.verification.verified -or -not $closed.data.after_screenshot_id -or
+            $null -ne $closed.data.visual_changed -or $closed.data.visual_diff.comparable -or
+            $closed.data.visual_diff.reason -ne 'source-window-unavailable') {
+            throw "Closed-window semantic action did not return desktop fallback evidence: $($closed | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $dialogGone = Invoke-WcuTool -Name 'wait_for_window' -Arguments @{ title = 'Windows Computer Use Dialog'; owner_window_id = $windowId; state = 'absent'; timeout_ms = 1500 }
+        if (-not $dialogGone.matched) { throw 'Owned dialog remained after the close action.' }
+
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'semantic-visual'
+            tools = @($tools.tools).Count
+            enter_text_visual = $entered.data.visual_diff.changed
+            secondary_action_visual = $toggled.data.visual_diff.changed
+            invoke_visual = $invoked.data.visual_diff.changed
+            closed_window_fallback = $closed.data.visual_diff.reason
+            released_keys = $ended.released_keys
+            released_buttons = $ended.released_buttons
         } | ConvertTo-Json -Depth 5
         return
     }

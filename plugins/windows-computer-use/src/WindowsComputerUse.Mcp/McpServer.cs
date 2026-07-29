@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.4.0" },
-            instructions = "Full-control Windows MCP. Select exactly one window, prefer hierarchical UIA controls, use snapshot plus screenshot_id for pixels, observe_changes for incremental state, and end_session when finished."
+            serverInfo = new { name = "windows-computer-use", version = "0.5.0" },
+            instructions = "Full-control Windows MCP. Prefer hierarchical UIA, use observe_changes for incremental state, and use snapshot/find_text with the same screenshot_id and coordinate_space=screenshot for pixels."
         };
     }
 

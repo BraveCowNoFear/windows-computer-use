@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using WindowsComputerUse.Contracts;
 
 namespace WindowsComputerUse.Broker;
@@ -52,6 +53,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "capture" => Capture(args),
                 "snapshot" => Snapshot(args),
                 "ocr" => await OcrAsync(args, cancellationToken),
+                "find_text" => await FindTextAsync(args, cancellationToken),
                 "click" => Click(args),
                 "press_key" => PressKey(args),
                 "type_text" => TypeText(args),
@@ -74,7 +76,7 @@ public sealed class BrokerDispatcher : IDisposable
     public void Dispose() => _uia.Dispose();
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or
         "click" or "press_key" or "type_text" or "scroll" or "drag" or "activate_window";
 
     private object Launch(JsonElement args)
@@ -173,14 +175,74 @@ public sealed class BrokerDispatcher : IDisposable
         var suppliedPath = args.String("path");
         var temporary = string.IsNullOrWhiteSpace(suppliedPath);
         var path = suppliedPath;
+        CaptureResult? capture = null;
+        WindowDescriptor? capturedWindow = null;
         if (temporary)
         {
             path = Path.Combine(Path.GetTempPath(), $"wcu-ocr-{Guid.NewGuid():N}.png");
-            var window = args.Bool("desktop") ? null : _windows.Resolve(args);
-            _capture.Capture(window, path);
+            capturedWindow = args.Bool("desktop") ? null : _windows.Resolve(args);
+            capture = RememberCapture(capturedWindow, _capture.Capture(capturedWindow, path));
         }
-        try { return await _ocr.RecognizeAsync(path!, args.String("language"), cancellationToken); }
+        try
+        {
+            var node = ToJsonObject(await _ocr.RecognizeAsync(path!, args.String("language"), cancellationToken));
+            // Only window captures are cached and therefore safe to feed back into
+            // screenshot-bound input. Desktop OCR remains recognition-only.
+            if (capture is not null && capturedWindow is not null) AddCaptureMetadata(node, capture);
+            return node;
+        }
         finally { if (temporary && File.Exists(path)) File.Delete(path); }
+    }
+
+    private async Task<object> FindTextAsync(JsonElement args, CancellationToken cancellationToken)
+    {
+        var query = args.String("text") ?? throw new ArgumentException("text is required");
+        var mode = args.String("match")?.ToLowerInvariant() ?? "contains";
+        if (mode is not "exact" and not "contains") throw new ArgumentException("match must be exact or contains");
+        var comparison = args.Bool("case_sensitive") ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var limit = Math.Clamp(args.Int("limit", 50), 1, 200);
+        var window = _windows.Resolve(args);
+        var path = Path.Combine(Path.GetTempPath(), $"wcu-find-text-{Guid.NewGuid():N}.png");
+        var capture = RememberCapture(window, _capture.Capture(window, path));
+        try
+        {
+            var ocr = ToJsonObject(await _ocr.RecognizeAsync(path, args.String("language"), cancellationToken));
+            if (ocr["ok"]?.GetValue<bool>() != true)
+                throw new InvalidOperationException($"Windows OCR failed: {ocr["error"]?.GetValue<string>()}");
+            var matches = new JsonArray();
+            if (ocr["lines"] is JsonArray lines)
+            {
+                foreach (var lineNode in lines.OfType<JsonObject>())
+                {
+                    AddOcrMatch(matches, lineNode, "line", query, mode, comparison, capture, limit);
+                    if (lineNode["words"] is not JsonArray words) continue;
+                    foreach (var wordNode in words.OfType<JsonObject>())
+                    {
+                        AddOcrMatch(matches, wordNode, "word", query, mode, comparison, capture, limit);
+                        if (matches.Count >= limit) break;
+                    }
+                    if (matches.Count >= limit) break;
+                }
+            }
+            return new JsonObject
+            {
+                ["ok"] = true,
+                ["backend"] = "windows-media-ocr",
+                ["recognized_text"] = ocr["text"]?.DeepClone(),
+                ["query"] = query,
+                ["match"] = mode,
+                ["screenshot_id"] = capture.Id,
+                ["captured_at"] = capture.CapturedAt,
+                ["capture_bounds"] = JsonSerializer.SerializeToNode(capture.Bounds, ProtocolJson.Options),
+                ["coordinate_space"] = "screenshot",
+                ["matches"] = matches,
+                ["count"] = matches.Count
+            };
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 
     private ActionResult Click(JsonElement args)
@@ -188,7 +250,7 @@ public sealed class BrokerDispatcher : IDisposable
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
-        var point = _input.WindowPoint(window, args.Int("x"), args.Int("y"), args.Bool("relative", true));
+        var point = ResolvePoint(args, window, beforeCapture, "x", "y");
         _input.Click(point.X, point.Y, args.String("button") ?? "left", args.Int("count", 1));
         _screenshots.Clear();
         Thread.Sleep(100);
@@ -237,7 +299,7 @@ public sealed class BrokerDispatcher : IDisposable
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
-        var point = _input.WindowPoint(window, args.Int("x", window.Bounds.Width / 2), args.Int("y", window.Bounds.Height / 2), args.Bool("relative", true));
+        var point = ResolvePoint(args, window, beforeCapture, "x", "y", window.Bounds.Width / 2, window.Bounds.Height / 2);
         _input.Scroll(point.X, point.Y, args.Int("vertical"), args.Int("horizontal"));
         _screenshots.Clear();
         Thread.Sleep(100);
@@ -256,9 +318,8 @@ public sealed class BrokerDispatcher : IDisposable
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
-        var relative = args.Bool("relative", true);
-        var from = _input.WindowPoint(window, args.Int("from_x"), args.Int("from_y"), relative);
-        var to = _input.WindowPoint(window, args.Int("to_x"), args.Int("to_y"), relative);
+        var from = ResolvePoint(args, window, beforeCapture, "from_x", "from_y");
+        var to = ResolvePoint(args, window, beforeCapture, "to_x", "to_y");
         _input.Drag(from.X, from.Y, to.X, to.Y, args.Int("duration_ms", 300));
         _screenshots.Clear();
         Thread.Sleep(100);
@@ -291,7 +352,7 @@ public sealed class BrokerDispatcher : IDisposable
     {
         if (window is not null)
         {
-            _screenshots[capture.Id] = new ScreenshotRecord(window.Id, window.Bounds, capture.CapturedAt, capture.Sha256);
+            _screenshots[capture.Id] = new ScreenshotRecord(window.Id, window.Bounds, capture.Bounds, capture.CapturedAt, capture.Sha256);
             while (_screenshots.Count > 32) _screenshots.Remove(_screenshots.First().Key);
         }
         return capture;
@@ -320,6 +381,87 @@ public sealed class BrokerDispatcher : IDisposable
         return inspection;
     }
 
+    private (int X, int Y) ResolvePoint(
+        JsonElement args,
+        WindowDescriptor window,
+        ScreenshotRecord? screenshot,
+        string xName,
+        string yName,
+        int defaultX = 0,
+        int defaultY = 0)
+    {
+        var x = args.Int(xName, defaultX);
+        var y = args.Int(yName, defaultY);
+        var coordinateSpace = args.String("coordinate_space")?.ToLowerInvariant()
+            ?? (args.Bool("relative", true) ? "window" : "screen");
+        return coordinateSpace switch
+        {
+            "window" => _input.WindowPoint(window, x, y, true),
+            "screen" => (x, y),
+            "screenshot" => ScreenshotPoint(screenshot, x, y),
+            _ => throw new ArgumentException("coordinate_space must be window, screen, or screenshot")
+        };
+    }
+
+    private static (int X, int Y) ScreenshotPoint(ScreenshotRecord? screenshot, int x, int y)
+    {
+        if (screenshot is null)
+            throw new InvalidOperationException("coordinate_space=screenshot requires a valid screenshot_id from capture or snapshot.");
+        if (x < 0 || y < 0 || x >= screenshot.CaptureBounds.Width || y >= screenshot.CaptureBounds.Height)
+            throw new ArgumentOutOfRangeException(nameof(x), "Screenshot coordinates must fall inside the captured image.");
+        return (screenshot.CaptureBounds.X + x, screenshot.CaptureBounds.Y + y);
+    }
+
+    private static JsonObject ToJsonObject(object value)
+    {
+        var json = JsonSerializer.Serialize(value, ProtocolJson.Options);
+        return JsonNode.Parse(json) as JsonObject
+            ?? throw new InvalidDataException("Expected a JSON object from the OCR backend.");
+    }
+
+    private static void AddCaptureMetadata(JsonObject node, CaptureResult capture)
+    {
+        node["screenshot_id"] = capture.Id;
+        node["captured_at"] = JsonValue.Create(capture.CapturedAt);
+        node["capture_bounds"] = JsonSerializer.SerializeToNode(capture.Bounds, ProtocolJson.Options);
+        node["coordinate_space"] = "screenshot";
+        node["sha256"] = capture.Sha256;
+    }
+
+    private static void AddOcrMatch(
+        JsonArray target,
+        JsonObject source,
+        string kind,
+        string query,
+        string mode,
+        StringComparison comparison,
+        CaptureResult capture,
+        int limit)
+    {
+        if (target.Count >= limit) return;
+        var text = source["text"]?.GetValue<string>() ?? string.Empty;
+        var matched = mode == "exact"
+            ? string.Equals(text, query, comparison)
+            : text.Contains(query, comparison);
+        if (!matched || source["bounds"] is not JsonObject bounds) return;
+
+        var x = (int)Math.Round(bounds["x"]?.GetValue<double>() ?? 0d);
+        var y = (int)Math.Round(bounds["y"]?.GetValue<double>() ?? 0d);
+        var width = Math.Max(0, (int)Math.Round(bounds["width"]?.GetValue<double>() ?? 0d));
+        var height = Math.Max(0, (int)Math.Round(bounds["height"]?.GetValue<double>() ?? 0d));
+        if (width == 0 || height == 0) return;
+        var screenshotBounds = new RectDto(x, y, width, height);
+        var screenBounds = new RectDto(capture.Bounds.X + x, capture.Bounds.Y + y, width, height);
+        target.Add(new JsonObject
+        {
+            ["kind"] = kind,
+            ["text"] = text,
+            ["bounds"] = JsonSerializer.SerializeToNode(screenshotBounds, ProtocolJson.Options),
+            ["screen_bounds"] = JsonSerializer.SerializeToNode(screenBounds, ProtocolJson.Options),
+            ["center"] = new JsonObject { ["x"] = x + width / 2, ["y"] = y + height / 2 }
+        });
+    }
+
     private static bool Equivalent(ControlDescriptor before, ControlDescriptor after) =>
         before.Id == after.Id &&
         before.ParentId == after.ParentId &&
@@ -335,5 +477,5 @@ public sealed class BrokerDispatcher : IDisposable
         before.HasKeyboardFocus == after.HasKeyboardFocus &&
         before.Patterns.SequenceEqual(after.Patterns, StringComparer.Ordinal);
 
-    private sealed record ScreenshotRecord(long WindowId, RectDto Bounds, DateTimeOffset CapturedAt, string Sha256);
+    private sealed record ScreenshotRecord(long WindowId, RectDto Bounds, RectDto CaptureBounds, DateTimeOffset CapturedAt, string Sha256);
 }

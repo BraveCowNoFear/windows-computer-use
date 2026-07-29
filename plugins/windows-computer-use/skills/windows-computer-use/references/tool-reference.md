@@ -22,6 +22,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `capture` | Return PNG image content for a window or virtual desktop and optionally save it. |
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize an existing image or fresh capture with Windows.Media.Ocr. |
+| `find_text` | Fresh-capture a window and return matching OCR line/word bounds, centers, and screenshot id. |
 | `click` | Click window-relative or screen coordinates with left, right, or middle button. |
 | `press_key` | Send a `+`-separated chord such as `ctrl+s`, `alt+f4`, or `shift+tab`. |
 | `type_text` | Type arbitrary Unicode into the focused control. |
@@ -32,6 +33,6 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 
 Controls include `parentId`, `depth`, and `childCount`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session.
 
-Coordinate tools accept `screenshot_id` and `max_age_ms` (default 15000). A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
+Coordinate tools accept `coordinate_space` (`window`, `screen`, or `screenshot`), `screenshot_id`, and `max_age_ms` (default 15000). Screenshot coordinates are mapped from the capture's DWM-visible screen origin. A bound action is rejected before input if the id is unknown/expired, belongs to another window, or the target moved/resized. Semantic and input mutations invalidate older screenshot ids. Pixel actions return a post-action screenshot id and `window-and-screenshot-reobserve` verification.
 
 State-changing tools return `backend` and `verification`. `uia3-reobserve` means the control was found again after the action. `window-reobserve-element-changed` means the action completed and the prior element intentionally disappeared or changed identity.

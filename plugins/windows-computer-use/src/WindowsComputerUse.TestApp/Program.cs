@@ -64,9 +64,10 @@ internal sealed class TestForm : Form
         {
             Name = "CommitButton",
             AccessibleName = "Commit",
-            Text = "Commit",
-            Location = new Point(374, 74),
-            Width = 110
+            Text = "SAVE",
+            Location = new Point(374, 66),
+            Size = new Size(110, 42),
+            Font = new Font(SystemFonts.MessageBoxFont?.FontFamily ?? FontFamily.GenericSansSerif, 14, FontStyle.Bold)
         };
         var status = new Label
         {

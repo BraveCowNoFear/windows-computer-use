@@ -23,6 +23,7 @@ internal static class NativeMethods
     internal const uint MouseeventfMiddleup = 0x0040;
     internal const uint MouseeventfWheel = 0x0800;
     internal const uint MouseeventfHwheel = 0x01000;
+    internal const uint DwmwaExtendedFrameBounds = 9;
 
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
@@ -100,6 +101,21 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetProcessDpiAwarenessContext(nint dpiContext);
+
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmGetWindowAttribute(nint hWnd, uint attribute, out NativeRect value, int size);
+
+    internal static NativeRect GetVisibleWindowRect(nint handle, NativeRect fallback)
+    {
+        try
+        {
+            return DwmGetWindowAttribute(handle, DwmwaExtendedFrameBounds, out var bounds, Marshal.SizeOf<NativeRect>()) == 0
+                ? bounds
+                : fallback;
+        }
+        catch (DllNotFoundException) { return fallback; }
+        catch (EntryPointNotFoundException) { return fallback; }
+    }
 
     internal static string GetWindowText(nint handle)
     {

@@ -16,7 +16,7 @@ MCP stdout contains only newline-delimited JSON-RPC. Broker diagnostics and MCP 
 
 ## Observation and identity
 
-`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, and a stable selector. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash.
+`inspect_window` resolves an exact Win32 HWND and walks UIA3 children breadth-first. Every descriptor includes parent id, depth, child count, semantic properties, patterns, physical bounds, and a stable selector. Public ids hash the HWND plus a hierarchy path; an AutomationId takes precedence over mutable accessible names. `observe_changes` compares a new observation with one of the 16 cached observation ids and returns only added, removed, or changed controls. `snapshot` returns a semantic observation together with one fresh image, screenshot id, capture time, and content hash. Window descriptors expose both GetWindowRect bounds and DWM visible-frame bounds.
 
 The broker caches the live `AutomationElement`. If it becomes stale, the broker scans the current tree and re-locates by semantic properties. A major navigation should still be followed by a fresh inspection because the application may intentionally replace the entire view.
 
@@ -38,10 +38,10 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 ## Native backends
 
 - UIA3: FlaUI 5.0 over Microsoft UI Automation.
-- Windows and capture: picker-free `Windows.Graphics.Capture` for HWNDs on Windows 10 1903+, then `PrintWindow(PW_RENDERFULLCONTENT)` and physical screen copy fallback.
+- Windows and capture: picker-free `Windows.Graphics.Capture` for HWNDs on Windows 10 1903+, then `PrintWindow(PW_RENDERFULLCONTENT)` and physical screen copy fallback. WGC image origins use `DWMWA_EXTENDED_FRAME_BOUNDS` rather than GetWindowRect's invisible resize border.
 - Displays and DPI: `EnumDisplayMonitors` + `GetMonitorInfo` physical virtual-screen rectangles and effective per-monitor DPI from Shcore.
 - Input: User32 `SendInput`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard.
-- OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs.
+- OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs. Lines/words carry image bounds; `find_text` returns screenshot and screen bounds plus image-relative centers.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
 
 ## Known gaps

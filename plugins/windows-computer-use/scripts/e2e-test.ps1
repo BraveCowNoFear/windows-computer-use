@@ -66,7 +66,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 19) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 20) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -130,22 +130,37 @@ try {
     }
     if (-not $semanticInvalidatedScreenshot) { throw 'A semantic mutation did not invalidate the prior screenshot.' }
 
+    $pixelText = 'Pixel mapped'
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $pixelText } | Out-Null
     $pixelSnapshot = Invoke-WcuTool -Name 'snapshot' -Arguments @{ window_id = $windowId; limit = 100 }
     $pixelSnapshotMeta = $pixelSnapshot.content[0].text | ConvertFrom-Json
+    if ($pixelSnapshotMeta.capture.bounds.x -ne $pixelSnapshotMeta.inspection.window.visibleBounds.x -or $pixelSnapshotMeta.capture.bounds.y -ne $pixelSnapshotMeta.inspection.window.visibleBounds.y) {
+        throw 'WGC image origin does not match the DWM visible frame origin.'
+    }
+    $ocrTarget = Invoke-WcuTool -Name 'find_text' -Arguments @{ window_id = $windowId; text = 'SAVE'; match = 'exact'; limit = 10 }
+    $ocrMatches = @($ocrTarget.matches | Where-Object { $_.kind -eq 'word' })
+    if ($ocrTarget.count -lt 1 -or $ocrMatches.Count -lt 1 -or -not $ocrTarget.screenshot_id) {
+        throw "OCR text grounding did not resolve the target button: $($ocrTarget | ConvertTo-Json -Depth 8 -Compress)"
+    }
+    $pixelX = [int]$ocrMatches[0].center.x
+    $pixelY = [int]$ocrMatches[0].center.y
 
     $staleRejected = $false
     Start-Sleep -Milliseconds 120
     try {
-        Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $pixelSnapshotMeta.capture.id; max_age_ms = 100 } | Out-Null
+        Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id; max_age_ms = 100 } | Out-Null
     } catch {
         if ($_.Exception.Message -match 'stale') { $staleRejected = $true } else { throw }
     }
     if (-not $staleRejected) { throw 'Stale screenshot coordinates were not rejected.' }
 
-    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $pixelSnapshotMeta.capture.id }
+    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id }
     if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id) {
         throw 'Screenshot-bound pixel action did not re-observe the window.'
     }
+    $pixelExpected = 'Saved: ' + $pixelText
+    $pixelWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $pixelExpected; state = 'exists'; timeout_ms = 5000 }
+    if (-not $pixelWait.matched) { throw 'Screenshot-space coordinate mapping did not invoke the target button.' }
 
     $occluder = Start-Process -FilePath $testAppPath -ArgumentList '--occluder' -PassThru
     $occluderDeadline = [DateTime]::UtcNow.AddSeconds(5)
@@ -165,6 +180,8 @@ try {
 
     $ocr = Invoke-WcuTool -Name 'ocr' -Arguments @{ path = $capturePath }
     if (-not $ocr.ok -or $ocr.text -notmatch 'Semantic UI automation test') { throw 'Windows OCR did not recognize the test window heading.' }
+    $freshOcr = Invoke-WcuTool -Name 'ocr' -Arguments @{ window_id = $windowId }
+    if (-not $freshOcr.ok -or -not $freshOcr.screenshot_id -or $freshOcr.coordinate_space -ne 'screenshot') { throw 'Fresh-window OCR did not return screenshot-bound coordinate metadata.' }
     $ended = Invoke-WcuTool -Name 'end_session'
     if (-not $ended.ok) { throw 'Session did not end cleanly.' }
 
@@ -186,6 +203,8 @@ try {
         incremental_changes = @($diff.changes).Count
         semantic_screenshot_invalidation = $semanticInvalidatedScreenshot
         screenshot_bound_action = $pixelClick.verification.strategy
+        screenshot_space_mapping = $pixelWait.matched
+        ocr_text_grounding = $ocrTarget.count
         stale_screenshot_rejected = $staleRejected
         occluded_window_capture = $true
         capture_verified = $true
@@ -193,6 +212,7 @@ try {
         ocr_ok = [bool]$ocr.ok
         ocr_backend = $ocr.backend
         ocr_text_length = if ($null -ne $ocr.text) { $ocr.text.Length } else { 0 }
+        fresh_ocr_screenshot_bound = [bool]$freshOcr.screenshot_id
     } | ConvertTo-Json -Depth 6
 } finally {
     if ($null -ne $mcp) {

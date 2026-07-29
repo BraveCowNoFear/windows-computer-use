@@ -15,6 +15,7 @@ public sealed class WindowService
             var title = NativeMethods.GetWindowText(handle);
             if (string.IsNullOrWhiteSpace(title)) return true;
             if (!NativeMethods.GetWindowRect(handle, out var rect)) return true;
+            var visibleRect = NativeMethods.GetVisibleWindowRect(handle, rect);
             NativeMethods.GetWindowThreadProcessId(handle, out var rawPid);
             var pid = unchecked((int)rawPid);
             string app = $"process:{pid}";
@@ -37,6 +38,7 @@ public sealed class WindowService
                 pid,
                 path,
                 new RectDto(rect.Left, rect.Top, Math.Max(0, rect.Right - rect.Left), Math.Max(0, rect.Bottom - rect.Top)),
+                new RectDto(visibleRect.Left, visibleRect.Top, Math.Max(0, visibleRect.Right - visibleRect.Left), Math.Max(0, visibleRect.Bottom - visibleRect.Top)),
                 handle == foreground,
                 NativeMethods.IsIconic(handle)));
             return true;

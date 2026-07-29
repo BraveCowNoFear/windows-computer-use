@@ -20,6 +20,7 @@ public sealed class CaptureService
 
         Bitmap bitmap;
         string backend;
+        var captureBounds = requestedBounds;
         var wgcFailure = default(string);
         if (window is not null && _windowsGraphicsCapture.TryCapture(
                 new nint(window.Id),
@@ -29,6 +30,8 @@ public sealed class CaptureService
         {
             bitmap = wgcBitmap!;
             backend = "windows-graphics-capture";
+            var visibleBounds = window!.VisibleBounds;
+            captureBounds = new RectDto(visibleBounds.X, visibleBounds.Y, bitmap.Width, bitmap.Height);
         }
         else
         {
@@ -70,7 +73,7 @@ public sealed class CaptureService
                 File.WriteAllBytes(fullPath, bytes);
                 outputPath = fullPath;
             }
-            var bounds = new RectDto(requestedBounds.X, requestedBounds.Y, bitmap.Width, bitmap.Height);
+            var bounds = new RectDto(captureBounds.X, captureBounds.Y, bitmap.Width, bitmap.Height);
             var capturedAt = DateTimeOffset.UtcNow;
             return new CaptureResult(
                 $"shot-{Guid.NewGuid():N}",

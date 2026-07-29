@@ -15,8 +15,8 @@ Choose the highest reliable layer for each step:
 2. Use `inspect_window`, `find_controls`, `invoke`, and `enter_text` for UIA3 semantic control.
 3. Use `wait_for_ui` after transitions instead of fixed sleeps.
 4. Use `observe_changes` with the previous `observation_id` when only incremental UIA state is needed.
-5. Use `snapshot` for one atomic UIA + image observation; use `capture` plus `ocr` when semantic metadata is missing or incomplete.
-6. Use `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback.
+5. Use `snapshot` for one atomic UIA + image observation; use fresh `ocr` or `find_text` when semantic metadata is missing or incomplete.
+6. Use `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback. Prefer `coordinate_space=screenshot` with the same observation's screenshot id.
 
 Do not delegate to a dedicated UI worker. Drive this MCP directly in the active task.
 
@@ -28,7 +28,7 @@ Do not delegate to a dedicated UI worker. Drive this MCP directly in the active 
 4. Perform one state-changing action. Actions automatically activate the target, re-resolve stale elements, and re-observe afterward.
 5. Inspect the returned verification. Call `wait_for_ui` for dialogs, navigation, saves, progress, or any asynchronous transition.
 6. Reinspect after a major state change. Treat prior coordinates as stale; control ids can be retried because the broker re-locates their selector.
-7. When UIA cannot expose the target, call `snapshot` (and optionally `ocr`) before coordinate input, then pass its `screenshot_id` to `click`, `scroll`, or `drag`. If the broker reports it stale, moved, or resized, snapshot again instead of retrying blindly.
+7. When UIA cannot expose the target, call `find_text` for visible text or `snapshot` for model-side vision. Pass the returned image-relative center and `screenshot_id` to `click`, `scroll`, or `drag` with `coordinate_space=screenshot`. If the broker reports it stale, moved, or resized, observe again instead of retrying blindly.
 8. Call `end_session` after the Windows phase to clear cached elements and close the control lifecycle.
 
 All coordinates are physical screen pixels. Coordinate tools are window-relative by default and support negative virtual-desktop origins. Unicode text entry does not require clipboard mutation.

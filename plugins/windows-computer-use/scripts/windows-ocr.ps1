@@ -39,14 +39,24 @@ try {
     if ($null -eq $engine) { throw 'No Windows OCR language is available for the requested language.' }
     $result = Await-WinRt ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
     $lines = @($result.Lines | ForEach-Object {
+        $words = @($_.Words | ForEach-Object {
+            [ordered]@{
+                text = $_.Text
+                bounds = [ordered]@{ x = $_.BoundingRect.X; y = $_.BoundingRect.Y; width = $_.BoundingRect.Width; height = $_.BoundingRect.Height }
+            }
+        })
+        $lineBounds = $null
+        if ($words.Count -gt 0) {
+            $left = ($words | ForEach-Object { [double]$_.bounds.x } | Measure-Object -Minimum).Minimum
+            $top = ($words | ForEach-Object { [double]$_.bounds.y } | Measure-Object -Minimum).Minimum
+            $right = ($words | ForEach-Object { [double]$_.bounds.x + [double]$_.bounds.width } | Measure-Object -Maximum).Maximum
+            $bottom = ($words | ForEach-Object { [double]$_.bounds.y + [double]$_.bounds.height } | Measure-Object -Maximum).Maximum
+            $lineBounds = [ordered]@{ x = $left; y = $top; width = $right - $left; height = $bottom - $top }
+        }
         [ordered]@{
             text = $_.Text
-            words = @($_.Words | ForEach-Object {
-                [ordered]@{
-                    text = $_.Text
-                    bounds = [ordered]@{ x = $_.BoundingRect.X; y = $_.BoundingRect.Y; width = $_.BoundingRect.Width; height = $_.BoundingRect.Height }
-                }
-            })
+            bounds = $lineBounds
+            words = $words
         }
     })
     [ordered]@{ ok = $true; backend = 'windows-media-ocr'; language = $engine.RecognizerLanguage.LanguageTag; text = $result.Text; lines = $lines } |

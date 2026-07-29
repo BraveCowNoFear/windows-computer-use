@@ -6,7 +6,7 @@ Re-run `inspect_window`, then search by `automation_id`, exact `name`, and `cont
 
 ## Custom canvas or empty UIA tree
 
-Snapshot the selected window, run OCR if needed, and use window-relative coordinates from the fresh image. Pass its `screenshot_id` with the action. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.
+Use `find_text` when the target has readable text; otherwise snapshot the selected window for model-side vision. Use image-relative coordinates with `coordinate_space=screenshot` and pass the same `screenshot_id`. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.
 
 ## Blank window capture
 

@@ -42,9 +42,16 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Added an isolated extended-app gate. Verified Word (138 controls, depth 11), Excel (60, depth 8), VS Code/Electron (14, depth 7), WeChat (29, depth 8), and SolidWorks (115, depth 12), all with WGC + OCR.
 - Extended-app cleanup preserves pre-existing app families, closes only test-created process groups, and proved zero remaining target processes, screenshots, VS Code profiles, MCP/Broker processes, or UI locks.
 
+### v0.5.0 — screenshot coordinates and OCR grounding
+
+- Window descriptors now expose both GetWindowRect and DWM extended visible-frame bounds. WGC capture bounds use the visible-frame origin, eliminating invisible resize-border offset.
+- `click`, `scroll`, and `drag` support explicit `window`, `screen`, and `screenshot` coordinate spaces. Screenshot points require the matching fresh screenshot id and are range-checked before SendInput.
+- Fresh window OCR now returns screenshot id, capture bounds, timestamp, hash, and `coordinate_space=screenshot`. Added `find_text`, making 20 MCP tools; it returns matching OCR line/word image bounds, physical screen bounds, and image-relative centers.
+- E2E enters a new value, locates the large `SAVE` button through OCR, clicks its OCR word center in screenshot space, and verifies the resulting UIA status. This proves the full WGC -> OCR -> coordinate mapping -> SendInput -> UIA verification loop.
+
 ## Current boundaries and next work
 
-- No local visual-language model, image matcher, or OCR bounding-box grounding yet. Image interpretation currently depends on Windows OCR and the calling model.
+- Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.
 - Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, minimized/protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 

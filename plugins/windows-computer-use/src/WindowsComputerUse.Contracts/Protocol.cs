@@ -39,6 +39,7 @@ public sealed record WindowDescriptor(
     int ProcessId,
     string? ProcessPath,
     RectDto Bounds,
+    RectDto VisibleBounds,
     bool IsForeground,
     bool IsMinimized);
 

@@ -2,7 +2,7 @@ param(
     [switch]$KeepTestWindow,
     [switch]$KeepArtifacts,
     [switch]$RequireWgc,
-    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual')][string]$Scenario = 'All'
+    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual')][string]$Scenario = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -221,6 +221,46 @@ try {
             secondary_action_visual = $toggled.data.visual_diff.changed
             invoke_visual = $invoked.data.visual_diff.changed
             closed_window_fallback = $closed.data.visual_diff.reason
+            released_keys = $ended.released_keys
+            released_buttons = $ended.released_buttons
+        } | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($Scenario -eq 'ClipboardVisual') {
+        $script:stage = 'clipboard-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one clipboard visual target, found $($target.Count)." }
+        $windowId = [long]$target[0].id
+        $input = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'InputBox'; limit = 2 }
+        if ($input.count -ne 1) { throw 'Could not uniquely resolve the clipboard visual input.' }
+
+        $testText = 'Clipboard ' + [char]0x89C6 + [char]0x89C9 + ' ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        $pasted = Invoke-WcuTool -Name 'paste_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText }
+        if (-not $pasted.ok -or -not $pasted.verification.verified -or -not $pasted.data.clipboard_restored -or
+            -not $pasted.data.after_screenshot_id -or -not $pasted.data.visual_diff.comparable -or
+            -not $pasted.data.visual_diff.changed) {
+            throw "Atomic paste omitted changed post-action visual evidence: $($pasted | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $pasteWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $testText; timeout_ms = 1500 }
+        if (-not $pasteWait.matched) { throw 'Atomic paste did not reach the UIA Value state.' }
+
+        $copied = Invoke-WcuTool -Name 'copy_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; selection = 'all' }
+        if (-not $copied.ok -or -not $copied.verification.verified -or $copied.data.text -ne $testText -or
+            -not $copied.data.clipboard_restored -or -not $copied.data.after_screenshot_id -or
+            -not $copied.data.visual_diff.comparable -or -not $copied.data.visual_diff.changed) {
+            throw "Atomic copy omitted changed post-action visual evidence: $($copied | ConvertTo-Json -Depth 7 -Compress)"
+        }
+
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'clipboard-visual'
+            tools = @($tools.tools).Count
+            paste_visual = $pasted.data.visual_diff.changed
+            copy_visual = $copied.data.visual_diff.changed
+            clipboard_restored = $pasted.data.clipboard_restored -and $copied.data.clipboard_restored
             released_keys = $ended.released_keys
             released_buttons = $ended.released_buttons
         } | ConvertTo-Json -Depth 5

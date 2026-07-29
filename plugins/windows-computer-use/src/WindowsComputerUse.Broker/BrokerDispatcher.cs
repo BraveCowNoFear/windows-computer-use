@@ -277,69 +277,73 @@ public sealed class BrokerDispatcher : IDisposable
         var timeoutMs = Math.Clamp(args.Int("timeout_ms", 2_000), 100, 10_000);
         var settleMs = Math.Clamp(args.Int("settle_ms", 200), 50, 2_000);
         var window = _windows.Activate(_windows.Resolve(args));
-        try
+        ActionResult Execute()
         {
-            if (_input.HeldKeys.Count > 0)
-                throw new InvalidOperationException($"paste_text requires all tracked keys to be released first; held: {string.Join(", ", _input.HeldKeys)}.");
-            var beforeMatches = _uia.Find(window, args, 2);
-            if (beforeMatches.Count != 1)
-                throw new InvalidOperationException(beforeMatches.Count == 0
-                    ? "No matching control was found for clipboard paste. Reinspect the window before retrying."
-                    : "Clipboard paste selector is ambiguous. Use one stable control id.");
-            var before = beforeMatches[0];
-            var expected = before.Value is null || (append && before.Value.Length >= 4096)
-                ? null
-                : append ? before.Value + text : text;
-            var expectedObserved = expected is { Length: > 4096 } ? expected[..4096] : expected;
-
-            var after = _clipboard.UseTemporaryText(text, () =>
+            try
             {
-                _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
-                _input.PressChord(append ? "ctrl+end" : "ctrl+a");
-                _input.PressChord("ctrl+v");
+                if (_input.HeldKeys.Count > 0)
+                    throw new InvalidOperationException($"paste_text requires all tracked keys to be released first; held: {string.Join(", ", _input.HeldKeys)}.");
+                var beforeMatches = _uia.Find(window, args, 2);
+                if (beforeMatches.Count != 1)
+                    throw new InvalidOperationException(beforeMatches.Count == 0
+                        ? "No matching control was found for clipboard paste. Reinspect the window before retrying."
+                        : "Clipboard paste selector is ambiguous. Use one stable control id.");
+                var before = beforeMatches[0];
+                var expected = before.Value is null || (append && before.Value.Length >= 4096)
+                    ? null
+                    : append ? before.Value + text : text;
+                var expectedObserved = expected is { Length: > 4096 } ? expected[..4096] : expected;
 
-                ControlDescriptor? observed = null;
-                if (expectedObserved is null)
+                var after = _clipboard.UseTemporaryText(text, () =>
                 {
-                    Thread.Sleep(settleMs);
-                    var matches = _uia.Find(window, args, 2);
-                    if (matches.Count == 1) observed = matches[0];
-                }
-                else
-                {
-                    var deadline = Environment.TickCount64 + timeoutMs;
-                    do
+                    _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
+                    _input.PressChord(append ? "ctrl+end" : "ctrl+a");
+                    _input.PressChord("ctrl+v");
+
+                    ControlDescriptor? observed = null;
+                    if (expectedObserved is null)
                     {
-                        var matches = _uia.Find(window, args, 2, "value");
-                        if (matches.Count == 1)
+                        Thread.Sleep(settleMs);
+                        var matches = _uia.Find(window, args, 2);
+                        if (matches.Count == 1) observed = matches[0];
+                    }
+                    else
+                    {
+                        var deadline = Environment.TickCount64 + timeoutMs;
+                        do
                         {
-                            observed = matches[0];
-                            if (string.Equals(observed.Value, expectedObserved, StringComparison.Ordinal)) break;
-                        }
-                        Thread.Sleep(25);
-                    } while (Environment.TickCount64 < deadline);
-                }
+                            var matches = _uia.Find(window, args, 2, "value");
+                            if (matches.Count == 1)
+                            {
+                                observed = matches[0];
+                                if (string.Equals(observed.Value, expectedObserved, StringComparison.Ordinal)) break;
+                            }
+                            Thread.Sleep(25);
+                        } while (Environment.TickCount64 < deadline);
+                    }
 
-                if (observed is null)
-                    throw new InvalidOperationException("The paste target could not be re-observed before restoring the clipboard.");
-                if (expectedObserved is not null && !string.Equals(observed.Value, expectedObserved, StringComparison.Ordinal))
-                    throw new InvalidOperationException("The paste target Value did not reach the expected text before the clipboard restore deadline.");
-                return observed;
-            });
+                    if (observed is null)
+                        throw new InvalidOperationException("The paste target could not be re-observed before restoring the clipboard.");
+                    if (expectedObserved is not null && !string.Equals(observed.Value, expectedObserved, StringComparison.Ordinal))
+                        throw new InvalidOperationException("The paste target Value did not reach the expected text before the clipboard restore deadline.");
+                    return observed;
+                });
 
-            return new ActionResult(
-                true,
-                "paste_text",
-                "windows-ole-clipboard+sendinput",
-                new ActionVerification(
+                return new ActionResult(
                     true,
-                    expectedObserved is null ? "uia3-reobserve-and-clipboard-restore" : "uia3-value-and-clipboard-restore",
-                    before.Value,
-                    after.Value,
-                    after.Id),
-                new { control = after, clipboard_restored = true, append });
+                    "paste_text",
+                    "windows-ole-clipboard+sendinput",
+                    new ActionVerification(
+                        true,
+                        expectedObserved is null ? "uia3-reobserve-and-clipboard-restore" : "uia3-value-and-clipboard-restore",
+                        before.Value,
+                        after.Value,
+                        after.Id),
+                    new { control = after, clipboard_restored = true, append });
+            }
+            finally { _screenshots.Clear(); }
         }
-        finally { _screenshots.Clear(); }
+        return RunSemanticAction(window, Execute);
     }
 
     private ActionResult CopyText(JsonElement args)
@@ -348,86 +352,90 @@ public sealed class BrokerDispatcher : IDisposable
         if (selection is not "current" and not "all") throw new ArgumentException("selection must be current or all");
         var timeoutMs = Math.Clamp(args.Int("timeout_ms", 2_000), 100, 10_000);
         var window = _windows.Activate(_windows.Resolve(args));
-        try
+        ActionResult Execute()
         {
-            if (_input.HeldKeys.Count > 0)
-                throw new InvalidOperationException($"copy_text requires all tracked keys to be released first; held: {string.Join(", ", _input.HeldKeys)}.");
-            var beforeMatches = _uia.Find(window, args, 2);
-            if (beforeMatches.Count != 1)
-                throw new InvalidOperationException(beforeMatches.Count == 0
-                    ? "No matching control was found for clipboard copy. Reinspect the window before retrying."
-                    : "Clipboard copy selector is ambiguous. Use one stable control id.");
-            var before = beforeMatches[0];
-            _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
-            if (selection == "all") _input.PressChord("ctrl+a");
-            Thread.Sleep(40);
-            var selectionObservation = _uia.Inspect(window, Math.Clamp(args.Int("scan_limit", 800), 1, 2_000));
-            var expected = selectionObservation.FocusedControlId == before.Id ? selectionObservation.SelectedText : null;
-            if (selection == "all" && expected is null && before.Value is { Length: < 4096 }) expected = before.Value;
-
-            var copyAttempts = 1;
-            ClipboardTextCapture captured;
             try
             {
-                captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), Math.Max(100, timeoutMs / 2));
-            }
-            catch (TimeoutException firstTimeout)
-            {
-                copyAttempts++;
+                if (_input.HeldKeys.Count > 0)
+                    throw new InvalidOperationException($"copy_text requires all tracked keys to be released first; held: {string.Join(", ", _input.HeldKeys)}.");
+                var beforeMatches = _uia.Find(window, args, 2);
+                if (beforeMatches.Count != 1)
+                    throw new InvalidOperationException(beforeMatches.Count == 0
+                        ? "No matching control was found for clipboard copy. Reinspect the window before retrying."
+                        : "Clipboard copy selector is ambiguous. Use one stable control id.");
+                var before = beforeMatches[0];
                 _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
                 if (selection == "all") _input.PressChord("ctrl+a");
-                Thread.Sleep(80);
+                Thread.Sleep(40);
+                var selectionObservation = _uia.Inspect(window, Math.Clamp(args.Int("scan_limit", 800), 1, 2_000));
+                var expected = selectionObservation.FocusedControlId == before.Id ? selectionObservation.SelectedText : null;
+                if (selection == "all" && expected is null && before.Value is { Length: < 4096 }) expected = before.Value;
+
+                var copyAttempts = 1;
+                ClipboardTextCapture captured;
                 try
                 {
                     captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), Math.Max(100, timeoutMs / 2));
                 }
-                catch (TimeoutException secondTimeout)
+                catch (TimeoutException firstTimeout)
                 {
-                    throw new TimeoutException(
-                        "The copy action did not change the clipboard after one semantic refocus retry.",
-                        new AggregateException(firstTimeout, secondTimeout));
+                    copyAttempts++;
+                    _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
+                    if (selection == "all") _input.PressChord("ctrl+a");
+                    Thread.Sleep(80);
+                    try
+                    {
+                        captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), Math.Max(100, timeoutMs / 2));
+                    }
+                    catch (TimeoutException secondTimeout)
+                    {
+                        throw new TimeoutException(
+                            "The copy action did not change the clipboard after one semantic refocus retry.",
+                            new AggregateException(firstTimeout, secondTimeout));
+                    }
                 }
-            }
-            if (copyAttempts == 1 && expected is { Length: < 20_000 } && !string.Equals(captured.Text, expected, StringComparison.Ordinal))
-            {
-                copyAttempts++;
-                _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
-                if (selection == "all") _input.PressChord("ctrl+a");
-                Thread.Sleep(80);
-                captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), timeoutMs);
-            }
-            if (expected is { Length: < 20_000 } && !string.Equals(captured.Text, expected, StringComparison.Ordinal))
-                throw new InvalidOperationException("Copied clipboard text did not equal the selected UIA text after one semantic refocus retry.");
-            if (expected is { Length: 20_000 } && !captured.Text.StartsWith(expected, StringComparison.Ordinal))
-                throw new InvalidOperationException("Copied clipboard text did not preserve the selected UIA text prefix.");
-
-            var afterMatches = _uia.Find(window, args, 2);
-            if (afterMatches.Count != 1) throw new InvalidOperationException("The copy target could not be re-observed after restoring the clipboard.");
-            var after = afterMatches[0];
-            return new ActionResult(
-                true,
-                "copy_text",
-                "sendinput+windows-ole-clipboard",
-                new ActionVerification(
-                    true,
-                    expected is null ? "clipboard-sequence-and-control-reobserve" : "clipboard-sequence-and-uia-selection",
-                    expected,
-                    captured.Text,
-                    after.Id),
-                new
+                if (copyAttempts == 1 && expected is { Length: < 20_000 } && !string.Equals(captured.Text, expected, StringComparison.Ordinal))
                 {
-                    text = captured.Text,
-                    length = captured.Text.Length,
-                    sha256 = captured.Sha256,
-                    normalized_sha256 = captured.NormalizedSha256,
-                    formats = captured.Formats,
-                    clipboard_restored = true,
-                    copy_attempts = copyAttempts,
-                    selection,
-                    control = after
-                });
+                    copyAttempts++;
+                    _ = _uia.PerformSecondaryAction(window, args.String("control_id"), args, "focus");
+                    if (selection == "all") _input.PressChord("ctrl+a");
+                    Thread.Sleep(80);
+                    captured = _clipboard.CaptureText(() => _input.PressChord("ctrl+c"), timeoutMs);
+                }
+                if (expected is { Length: < 20_000 } && !string.Equals(captured.Text, expected, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Copied clipboard text did not equal the selected UIA text after one semantic refocus retry.");
+                if (expected is { Length: 20_000 } && !captured.Text.StartsWith(expected, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Copied clipboard text did not preserve the selected UIA text prefix.");
+
+                var afterMatches = _uia.Find(window, args, 2);
+                if (afterMatches.Count != 1) throw new InvalidOperationException("The copy target could not be re-observed after restoring the clipboard.");
+                var after = afterMatches[0];
+                return new ActionResult(
+                    true,
+                    "copy_text",
+                    "sendinput+windows-ole-clipboard",
+                    new ActionVerification(
+                        true,
+                        expected is null ? "clipboard-sequence-and-control-reobserve" : "clipboard-sequence-and-uia-selection",
+                        expected,
+                        captured.Text,
+                        after.Id),
+                    new
+                    {
+                        text = captured.Text,
+                        length = captured.Text.Length,
+                        sha256 = captured.Sha256,
+                        normalized_sha256 = captured.NormalizedSha256,
+                        formats = captured.Formats,
+                        clipboard_restored = true,
+                        copy_attempts = copyAttempts,
+                        selection,
+                        control = after
+                    });
+            }
+            finally { _screenshots.Clear(); }
         }
-        finally { _screenshots.Clear(); }
+        return RunSemanticAction(window, Execute);
     }
 
     private ActionResult PerformSecondaryAction(JsonElement args)

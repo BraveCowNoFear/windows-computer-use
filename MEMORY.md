@@ -238,6 +238,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - 已完成动作若关闭来源窗口，不会被误报为失败；Broker 改为返回新的虚拟桌面截图，并以 `source-window-unavailable` 明确标记不可比较，供调用方从真实动作后状态继续。
 - 新增独立 `SemanticVisual` 场景，没有重复旧端到端套件。Release 构建与定向真实 WGC/MCP 运行共 18.9 秒，验证 42 工具握手、Unicode 文本、UIA 开关、语义 Invoke 三条视觉路径均发生可比较变化，关闭来源窗口时正确回退桌面，且会话结束后无按键或鼠标残留。
 
+### v0.35.0 — 原子剪贴板动作视觉验证
+
+- `paste_text` 与 `copy_text` 现在复用统一语义动作包装；原有全部直接格式备份、真实 Ctrl+V/Ctrl+C、UIA Value/选区校验、重聚焦重试及成功/失败恢复顺序保持不变。
+- 两项工具在原有返回数据上追加新的 `data.after_screenshot_id`、`data.visual_changed` 与精确 `data.visual_diff`，从而让原子文本传递也能直接续接动作后画面。
+- 新增独立 `ClipboardVisual` 场景，没有运行旧剪贴板失败矩阵或其他场景。Release 构建与定向真实 WGC/MCP 运行共 15.6 秒，验证粘贴与全选复制均发生可比较视觉变化、剪贴板恢复为真、42 工具握手正常且会话无输入残留。
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

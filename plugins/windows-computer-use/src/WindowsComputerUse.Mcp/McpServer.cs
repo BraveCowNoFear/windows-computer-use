@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.34.0" },
-            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; pass an observed screenshot_id to capture_region, ocr, find_text, or find_image when exact pixels matter; use compare_screenshots to localize two same-source frames; semantic and keyboard actions return fresh post-action screenshots and visual diffs; use desktop=true keyboard input only for unchanged foreground focus; use atomic paste_text/copy_text for reversible transfer; use semantic waits first, then visual change/stability; bind pixels to screenshot ids; restore minimized windows before vision."
+            serverInfo = new { name = "windows-computer-use", version = "0.35.0" },
+            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; pass an observed screenshot_id to capture_region, ocr, find_text, or find_image when exact pixels matter; use compare_screenshots to localize two same-source frames; semantic, clipboard, and keyboard actions return fresh post-action screenshots and visual diffs; use desktop=true keyboard input only for unchanged foreground focus; use atomic paste_text/copy_text for reversible transfer; use semantic waits first, then visual change/stability; bind pixels to screenshot ids; restore minimized windows before vision."
         };
     }
 

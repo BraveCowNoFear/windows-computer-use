@@ -223,8 +223,7 @@ public sealed class BrokerDispatcher : IDisposable
 
     private object Wait(JsonElement args)
     {
-        var window = _windows.Resolve(args);
-        return _uia.WaitFor(window, args, args.String("state") ?? "exists", args.Int("timeout_ms", 10_000), args.Int("poll_ms", 100));
+        return _uia.WaitFor(() => _windows.Resolve(args), args, args.String("state") ?? "exists", args.Int("timeout_ms", 10_000), args.Int("poll_ms", 100));
     }
 
     private CaptureResult Capture(JsonElement args)

@@ -110,6 +110,14 @@ internal sealed class TestForm : Form
             Location = new Point(30, 286),
             Size = new Size(150, 36)
         };
+        var delayedToggle = new Button
+        {
+            Name = "DelayedToggleButton",
+            AccessibleName = "Enable feature later",
+            Text = "ENABLE LATER",
+            Location = new Point(200, 286),
+            Size = new Size(145, 36)
+        };
         commit.Click += (_, _) =>
         {
             status.Text = $"Saved: {input.Text}";
@@ -148,7 +156,18 @@ internal sealed class TestForm : Form
             dialog.Show(this);
         }));
         recreateWindow.Click += (_, _) => RecreateHandle();
-        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow]);
+        delayedToggle.Click += (_, _) =>
+        {
+            var timer = new System.Windows.Forms.Timer { Interval = 350 };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                featureToggle.Checked = true;
+                timer.Dispose();
+            };
+            timer.Start();
+        };
+        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle]);
         AcceptButton = commit;
     }
 }

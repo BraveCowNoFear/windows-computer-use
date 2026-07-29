@@ -26,8 +26,8 @@ public static class ToolCatalog
             QueryProps(("control_id", S("string", "Stable control id.")), ("action", Enum("focus", "raise", "select", "add_to_selection", "remove_from_selection", "toggle", "expand", "collapse", "scroll_up", "scroll_down", "scroll_left", "scroll_right"))), ["action"]),
         Tool("enter_text", "Set or type Unicode text into a semantic control, preferring UIA ValuePattern and falling back to SendInput.",
             QueryProps(("control_id", S("string", "Stable control id.")), ("text", S("string", "Text to enter.")), ("append", S("boolean", "Append instead of replacing."))), ["text"]),
-        Tool("wait_for_ui", "Poll UIA until a control exists, disappears, becomes visible, enabled, or focused.",
-            QueryProps(("state", Enum("exists", "absent", "visible", "hidden", "enabled", "focused")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
+        Tool("wait_for_ui", "Poll UIA until a control matches an existence, visibility, focus, Value, selection, toggle, expand/collapse, or read-only state without blind sleeps.",
+            QueryProps(("control_id", S("string", "Stable control id.")), ("state", Enum("exists", "absent", "visible", "hidden", "enabled", "focused", "value_equals", "value_contains", "selected", "unselected", "toggle_on", "toggle_off", "toggle_indeterminate", "expanded", "collapsed", "readonly", "editable")), ("expected_value", S("string", "Required for value_equals/value_contains.")), ("case_sensitive", S("boolean", "Use ordinal case-sensitive Value comparison.")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
         Tool("capture", "Capture a window through Windows Graphics Capture with PrintWindow/screen-copy fallback, or capture the virtual desktop, and return PNG image content.",
             WindowProps(("desktop", S("boolean", "Capture the full virtual desktop instead of one window.")), ("path", S("string", "Optional absolute output path.")))),
         Tool("snapshot", "Return one atomic computer-use observation containing the UIA semantic state and a fresh window image with screenshot id, timestamp, and content hash.",
@@ -58,7 +58,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

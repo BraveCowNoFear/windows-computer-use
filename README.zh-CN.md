@@ -17,7 +17,7 @@
 - 以 DWM 可见边界对齐 WGC，并显式支持 `window` / `screen` / `screenshot` 坐标空间，避免不可见缩放边框造成点击偏移。
 - 原生 `Windows.Media.Ocr` 行/词边界、带截图 ID 的新鲜 OCR，以及可直接衔接点击的 `find_text` 文本定位。
 - 窗口 owner/root-owner 关系、用于瞬态弹窗的 `wait_for_window`，以及带验证的最小化/最大化/还原控制。
-- 条件等待代替盲目 sleep；每次动作后自动重新观测验证。
+- 状态条件等待代替盲目 sleep：除存在/可见/焦点外，还支持 Value 等值/包含、选中/未选中、Toggle、展开/折叠与只读/可编辑谓词；每次动作后自动重新观测验证。
 - 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
 - 25 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
 - 与 `desktop-control-for-windows` 共用全局 UI 锁协议。
@@ -53,7 +53,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、WGC、快照失效与新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
+`test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、带截止时间的状态条件等待、WGC、快照失效与新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
 
 构建后还可运行 `scripts/real-app-smoke.ps1` 做非破坏性真实应用兼容测试：它会打开隔离的记事本、资源管理器和设置窗口，完成 UIA/截图/OCR，并且只关闭测试前不存在的窗口 ID。
 

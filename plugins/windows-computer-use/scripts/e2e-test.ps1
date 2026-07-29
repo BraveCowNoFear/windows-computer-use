@@ -95,6 +95,8 @@ try {
     if ($inputState.count -ne 1 -or $inputState.controls[0].value -ne $testText -or $inputState.controls[0].isReadOnly) {
         throw 'UIA ValuePattern state was not exposed after text entry.'
     }
+    $valueWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $testText; timeout_ms = 1500 }
+    if (-not $valueWait.matched) { throw "Value-equality condition wait did not match the edit state: $($valueWait | ConvertTo-Json -Depth 5 -Compress)" }
     Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
     $testApp.Refresh()
     $afterFocusWindows = Invoke-WcuTool -Name 'list_windows'
@@ -119,6 +121,12 @@ try {
     $toggleDiff = Invoke-WcuTool -Name 'observe_changes' -Arguments @{ window_id = $windowId; previous_observation_id = $toggleObservation.observationId; limit = 150 }
     $toggleChanges = @($toggleDiff.changes | Where-Object { $_.id -eq $toggle.controls[0].id -and $_.before.toggleState -eq 'Off' -and $_.after.toggleState -eq 'On' })
     if ($toggleChanges.Count -ne 1) { throw 'Incremental observation did not include the TogglePattern state transition.' }
+    Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; action = 'toggle' } | Out-Null
+    $delayedToggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'DelayedToggleButton'; limit = 2 }
+    if ($delayedToggle.count -ne 1) { throw 'Could not resolve the delayed state-transition control.' }
+    Invoke-WcuTool -Name 'invoke' -Arguments @{ window_id = $windowId; control_id = $delayedToggle.controls[0].id } | Out-Null
+    $toggleWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_on'; timeout_ms = 1500; poll_ms = 50 }
+    if (-not $toggleWait.matched -or $toggleWait.elapsed_ms -lt 150 -or $toggleWait.elapsed_ms -gt 1500) { throw 'Toggle-state condition wait did not poll through the delayed UI transition within its deadline.' }
 
     $script:stage = 'selection-state'
     $beta = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; name = 'Beta'; control_type = 'ListItem'; limit = 2 }
@@ -129,6 +137,8 @@ try {
     if ($selectedBeta.Count -ne 1 -or @($selectionInspection.selectedControlIds) -notcontains $beta.controls[0].id) {
         throw "Explicit UIA selection action or selected-control summary did not verify: beta=$($beta | ConvertTo-Json -Depth 6 -Compress) inspection=$($selectionInspection | ConvertTo-Json -Depth 6 -Compress)"
     }
+    $selectionWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $beta.controls[0].id; state = 'selected'; timeout_ms = 1500 }
+    if (-not $selectionWait.matched) { throw 'Selection-state condition wait did not match the selected list item.' }
 
     $script:stage = 'semantic-invoke'
     $button = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
@@ -318,6 +328,11 @@ try {
         selected_text_exposed = $textSelectionState.selectedText -eq $testText
         toggle_state_diff = $toggleChanges.Count
         selection_state_exposed = $selectedBeta.Count
+        value_condition_wait = $valueWait.matched
+        value_condition_wait_ms = $valueWait.elapsed_ms
+        delayed_toggle_wait_ms = $toggleWait.elapsed_ms
+        selection_condition_wait = $selectionWait.matched
+        selection_condition_wait_ms = $selectionWait.elapsed_ms
         recreated_window_recovered = $true
         window_handle_changed = $windowHandleChanged
     } | ConvertTo-Json -Depth 6

@@ -86,22 +86,83 @@ public sealed class UiaService : IDisposable
             selectedControlIds);
     }
 
-    public IReadOnlyList<ControlDescriptor> Find(WindowDescriptor window, JsonElement query, int limit = 50)
+    public IReadOnlyList<ControlDescriptor> Find(WindowDescriptor window, JsonElement query, int limit = 50, string? patternFilter = null)
     {
-        var inspection = Inspect(window, Math.Clamp(query.Int("scan_limit", 800), 1, 2000));
+        var root = _automation.FromHandle(new nint(window.Id));
+        var scanLimit = Math.Clamp(query.Int("scan_limit", 800), 1, 2000);
+        var resultLimit = Math.Clamp(limit, 1, 200);
+        var controlId = query.String("control_id");
         var name = query.String("name");
         var nameContains = query.String("name_contains");
         var automationId = query.String("automation_id");
         var controlType = query.String("control_type");
         var className = query.String("class_name");
         var enabledOnly = query.Bool("enabled_only");
-        return inspection.Controls.Where(control =>
+        bool MatchesSelector(ControlDescriptor control) =>
+            (controlId is null || string.Equals(control.Id, controlId, StringComparison.Ordinal)) &&
             (name is null || string.Equals(control.Name, name, StringComparison.OrdinalIgnoreCase)) &&
             (nameContains is null || control.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase)) &&
             (automationId is null || string.Equals(control.AutomationId, automationId, StringComparison.OrdinalIgnoreCase)) &&
             (controlType is null || string.Equals(control.ControlType, controlType, StringComparison.OrdinalIgnoreCase)) &&
             (className is null || control.ClassName.Contains(className, StringComparison.OrdinalIgnoreCase)) &&
-            (!enabledOnly || control.IsEnabled)).Take(Math.Clamp(limit, 1, 200)).ToArray();
+            (!enabledOnly || control.IsEnabled);
+
+        if (controlId is not null)
+        {
+            var cachedMatches = new List<ControlDescriptor>();
+            foreach (var locator in _elements.Values.Where(item => item.WindowId == window.Id).ToArray())
+            {
+                if (!string.Equals(IdFor(window.Id, locator.Path), controlId, StringComparison.Ordinal)) continue;
+                var element = locator.Element;
+                try { _ = element.Name; }
+                catch
+                {
+                    var refreshed = FindByLocator(window, locator);
+                    if (refreshed is null) continue;
+                    element = refreshed;
+                }
+                var parentId = locator.Path.Count > 1 ? IdFor(window.Id, locator.Path.Take(locator.Path.Count - 1)) : null;
+                var children = FindChildren(element);
+                var basic = Describe(element, cachedMatches.Count, window.Id, parentId, locator.Path.Count - 1, children.Length, locator.Path, includePatterns: false);
+                if (!MatchesSelector(basic)) continue;
+                cachedMatches.Add(patternFilter == string.Empty
+                    ? basic
+                    : Describe(element, cachedMatches.Count, window.Id, parentId, locator.Path.Count - 1, children.Length, locator.Path, patternFilter: patternFilter));
+                if (cachedMatches.Count >= resultLimit) break;
+            }
+            if (cachedMatches.Count > 0) return cachedMatches;
+        }
+
+        var rootSegment = new LocatorSegment(string.Empty, "WindowRoot", string.Empty, string.Empty, 0);
+        var pending = new Queue<PendingElement>();
+        pending.Enqueue(new PendingElement(root, null, 0, [rootSegment]));
+        var matches = new List<ControlDescriptor>();
+        var scanned = 0;
+        while (pending.Count > 0 && scanned < scanLimit && matches.Count < resultLimit)
+        {
+            var current = pending.Dequeue();
+            var children = FindChildren(current.Element);
+            var parentId = current.Path.Count > 1 ? IdFor(window.Id, current.Path.Take(current.Path.Count - 1)) : null;
+            var basic = Describe(current.Element, scanned++, window.Id, parentId, current.Depth, children.Length, current.Path, includePatterns: false);
+            if (MatchesSelector(basic))
+            {
+                matches.Add(patternFilter == string.Empty
+                    ? basic
+                    : Describe(current.Element, basic.Index, window.Id, parentId, current.Depth, children.Length, current.Path, patternFilter: patternFilter));
+            }
+
+            var duplicateKeys = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var child in children)
+            {
+                var key = SelectorKey(child);
+                duplicateKeys.TryGetValue(key, out var ordinal);
+                duplicateKeys[key] = ordinal + 1;
+                var segment = Segment(child, ordinal);
+                var childPath = current.Path.Concat([segment]).ToArray();
+                pending.Enqueue(new PendingElement(child, null, current.Depth + 1, childPath));
+            }
+        }
+        return matches;
     }
 
     public ActionResult Invoke(WindowDescriptor window, string? controlId, JsonElement query)
@@ -198,26 +259,54 @@ public sealed class UiaService : IDisposable
         return Verify("perform_secondary_action", backend, window, controlId, query, before);
     }
 
-    public object WaitFor(WindowDescriptor window, JsonElement query, string state, int timeoutMs, int pollMs)
+    public object WaitFor(Func<WindowDescriptor> resolveWindow, JsonElement query, string state, int timeoutMs, int pollMs)
     {
         timeoutMs = Math.Clamp(timeoutMs, 50, 120_000);
         pollMs = Math.Clamp(pollMs, 25, 2_000);
+        state = state.Trim().ToLowerInvariant().Replace('-', '_').Replace(' ', '_');
+        var expectedValue = query.String("expected_value");
+        if ((state is "value_equals" or "value_contains") && expectedValue is null)
+            throw new ArgumentException("expected_value is required for value_equals and value_contains waits");
+        var comparison = query.Bool("case_sensitive") ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        var patternFilter = state switch
+        {
+            "exists" or "absent" or "visible" or "hidden" or "enabled" or "focused" => string.Empty,
+            "value_equals" or "value_contains" or "readonly" or "editable" => "value",
+            "selected" or "unselected" => "selection-item",
+            "toggle_on" or "toggle_off" or "toggle_indeterminate" => "toggle",
+            "expanded" or "collapsed" => "expand-collapse",
+            _ => throw new ArgumentException("Unsupported wait_for_ui state predicate.")
+        };
         var started = Environment.TickCount64;
         IReadOnlyList<ControlDescriptor> matches = [];
         while (Environment.TickCount64 - started <= timeoutMs)
         {
-            matches = Find(window, query, query.Int("limit", 20));
-            var satisfied = state.ToLowerInvariant() switch
+            var window = resolveWindow();
+            matches = Find(window, query, query.Int("limit", 20), patternFilter);
+            var satisfied = state switch
             {
                 "exists" or "visible" => matches.Any(control => !control.IsOffscreen),
                 "absent" or "hidden" => matches.Count == 0 || matches.All(control => control.IsOffscreen),
                 "enabled" => matches.Any(control => control.IsEnabled),
                 "focused" => matches.Any(control => control.HasKeyboardFocus),
-                _ => throw new ArgumentException("state must be exists, absent, visible, hidden, enabled, or focused")
+                "value_equals" => matches.Any(control => string.Equals(control.Value, expectedValue, comparison)),
+                "value_contains" => matches.Any(control => control.Value?.Contains(expectedValue!, comparison) == true),
+                "selected" => matches.Any(control => control.IsSelected == true),
+                "unselected" => matches.Any(control => control.IsSelected == false),
+                "toggle_on" => matches.Any(control => string.Equals(control.ToggleState, "On", StringComparison.OrdinalIgnoreCase)),
+                "toggle_off" => matches.Any(control => string.Equals(control.ToggleState, "Off", StringComparison.OrdinalIgnoreCase)),
+                "toggle_indeterminate" => matches.Any(control => string.Equals(control.ToggleState, "Indeterminate", StringComparison.OrdinalIgnoreCase)),
+                "expanded" => matches.Any(control => string.Equals(control.ExpandCollapseState, "Expanded", StringComparison.OrdinalIgnoreCase) || string.Equals(control.ExpandCollapseState, "PartiallyExpanded", StringComparison.OrdinalIgnoreCase)),
+                "collapsed" => matches.Any(control => string.Equals(control.ExpandCollapseState, "Collapsed", StringComparison.OrdinalIgnoreCase)),
+                "readonly" => matches.Any(control => control.IsReadOnly == true),
+                "editable" => matches.Any(control => control.IsReadOnly == false),
+                _ => false
             };
-            if (satisfied)
-                return new { matched = true, state, elapsed_ms = Environment.TickCount64 - started, controls = matches };
-            Thread.Sleep(pollMs);
+            var elapsed = Environment.TickCount64 - started;
+            if (satisfied && elapsed <= timeoutMs)
+                return new { matched = true, state, elapsed_ms = elapsed, controls = matches };
+            if (elapsed >= timeoutMs) break;
+            Thread.Sleep((int)Math.Min(pollMs, timeoutMs - elapsed));
         }
         return new { matched = false, state, elapsed_ms = Environment.TickCount64 - started, controls = matches };
     }
@@ -298,7 +387,9 @@ public sealed class UiaService : IDisposable
         string? parentId,
         int depth,
         int childCount,
-        IReadOnlyList<LocatorSegment> path)
+        IReadOnlyList<LocatorSegment> path,
+        bool includePatterns = true,
+        string? patternFilter = null)
     {
         var name = Safe(() => element.Name ?? "", "");
         var automationId = Safe(() => element.AutomationId ?? "", "");
@@ -310,8 +401,8 @@ public sealed class UiaService : IDisposable
             Math.Max(0, rectangle.Width), Math.Max(0, rectangle.Height));
         var selector = SelectorFor(windowId, path);
         var id = IdFor(windowId, path);
-        var patterns = GetPatterns(element);
-        var state = ReadPatternState(element);
+        var patterns = includePatterns ? GetPatterns(element, patternFilter) : [];
+        var state = includePatterns ? ReadPatternState(element, patterns) : PatternState.Empty;
         var descriptor = new ControlDescriptor(
             id, index, parentId, depth, childCount, name, automationId, controlType, className, bounds,
             Safe(() => element.IsEnabled, false),
@@ -330,16 +421,16 @@ public sealed class UiaService : IDisposable
         return descriptor;
     }
 
-    private static IReadOnlyList<string> GetPatterns(AutomationElement element)
+    private static IReadOnlyList<string> GetPatterns(AutomationElement element, string? patternFilter = null)
     {
         var patterns = new List<string>();
-        TryAdd(patterns, "invoke", () => element.Patterns.Invoke.IsSupported);
-        TryAdd(patterns, "value", () => element.Patterns.Value.IsSupported);
-        TryAdd(patterns, "text", () => element.Patterns.Text.IsSupported);
-        TryAdd(patterns, "selection-item", () => element.Patterns.SelectionItem.IsSupported);
-        TryAdd(patterns, "toggle", () => element.Patterns.Toggle.IsSupported);
-        TryAdd(patterns, "expand-collapse", () => element.Patterns.ExpandCollapse.IsSupported);
-        TryAdd(patterns, "scroll", () => element.Patterns.Scroll.IsSupported);
+        if (patternFilter is null or "invoke") TryAdd(patterns, "invoke", () => element.Patterns.Invoke.IsSupported);
+        if (patternFilter is null or "value") TryAdd(patterns, "value", () => element.Patterns.Value.IsSupported);
+        if (patternFilter is null or "text") TryAdd(patterns, "text", () => element.Patterns.Text.IsSupported);
+        if (patternFilter is null or "selection-item") TryAdd(patterns, "selection-item", () => element.Patterns.SelectionItem.IsSupported);
+        if (patternFilter is null or "toggle") TryAdd(patterns, "toggle", () => element.Patterns.Toggle.IsSupported);
+        if (patternFilter is null or "expand-collapse") TryAdd(patterns, "expand-collapse", () => element.Patterns.ExpandCollapse.IsSupported);
+        if (patternFilter is null or "scroll") TryAdd(patterns, "scroll", () => element.Patterns.Scroll.IsSupported);
         return patterns;
     }
 
@@ -348,7 +439,7 @@ public sealed class UiaService : IDisposable
         try { if (supported()) target.Add(name); } catch { }
     }
 
-    private static PatternState ReadPatternState(AutomationElement element)
+    private static PatternState ReadPatternState(AutomationElement element, IReadOnlyList<string> patterns)
     {
         string? value = null;
         bool? isReadOnly = null;
@@ -359,7 +450,7 @@ public sealed class UiaService : IDisposable
         double? verticalScrollPercent = null;
         try
         {
-            if (element.Patterns.Value.TryGetPattern(out var valuePattern))
+            if (patterns.Contains("value", StringComparer.Ordinal) && element.Patterns.Value.TryGetPattern(out var valuePattern))
             {
                 value = Truncate(valuePattern.Value.ValueOrDefault, 4096);
                 isReadOnly = valuePattern.IsReadOnly.ValueOrDefault;
@@ -368,25 +459,25 @@ public sealed class UiaService : IDisposable
         catch { }
         try
         {
-            if (element.Patterns.SelectionItem.TryGetPattern(out var selection))
+            if (patterns.Contains("selection-item", StringComparer.Ordinal) && element.Patterns.SelectionItem.TryGetPattern(out var selection))
                 isSelected = selection.IsSelected.ValueOrDefault;
         }
         catch { }
         try
         {
-            if (element.Patterns.Toggle.TryGetPattern(out var toggle))
+            if (patterns.Contains("toggle", StringComparer.Ordinal) && element.Patterns.Toggle.TryGetPattern(out var toggle))
                 toggleState = toggle.ToggleState.ValueOrDefault.ToString();
         }
         catch { }
         try
         {
-            if (element.Patterns.ExpandCollapse.TryGetPattern(out var expand))
+            if (patterns.Contains("expand-collapse", StringComparer.Ordinal) && element.Patterns.ExpandCollapse.TryGetPattern(out var expand))
                 expandCollapseState = expand.ExpandCollapseState.ValueOrDefault.ToString();
         }
         catch { }
         try
         {
-            if (element.Patterns.Scroll.TryGetPattern(out var scroll))
+            if (patterns.Contains("scroll", StringComparer.Ordinal) && element.Patterns.Scroll.TryGetPattern(out var scroll))
             {
                 horizontalScrollPercent = scroll.HorizontalScrollPercent.ValueOrDefault;
                 verticalScrollPercent = scroll.VerticalScrollPercent.ValueOrDefault;
@@ -536,7 +627,10 @@ public sealed class UiaService : IDisposable
         string? ToggleState,
         string? ExpandCollapseState,
         double? HorizontalScrollPercent,
-        double? VerticalScrollPercent);
+        double? VerticalScrollPercent)
+    {
+        public static PatternState Empty { get; } = new(null, null, null, null, null, null, null);
+    }
 
     private sealed record TextSnapshot(string? DocumentText, string? SelectedText);
 }

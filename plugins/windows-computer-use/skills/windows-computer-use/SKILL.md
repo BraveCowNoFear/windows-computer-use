@@ -13,7 +13,7 @@ Choose the highest reliable layer for each step:
 
 1. Use an application API or browser DOM when already available.
 2. Use `inspect_window`, `find_controls`, `invoke`, `perform_secondary_action`, and `enter_text` for UIA3 semantic control. Inspect Value, selection, toggle, expand/collapse, scroll, document-text, and selected-text state instead of inferring it from pixels.
-3. Use `wait_for_ui` for control changes and `wait_for_window` for top-level/owned-dialog transitions instead of fixed sleeps.
+3. Use `wait_for_ui` for control changes and `wait_for_window` for top-level/owned-dialog transitions instead of fixed sleeps. Prefer direct `value_equals`, `value_contains`, `selected`, `unselected`, `toggle_on`, `toggle_off`, `expanded`, `collapsed`, `readonly`, or `editable` predicates when that state is observable.
 4. Use `observe_changes` with the previous `observation_id` when only incremental UIA state is needed; it detects semantic state transitions even when element identity and layout stay unchanged.
 5. Use `snapshot` for one atomic UIA + image observation; use fresh `ocr` or `find_text` when semantic metadata is missing or incomplete.
 6. Use `pointer_position`, `move_pointer`, `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback. Prefer `coordinate_space=screenshot` with the same observation's screenshot id. Use `move_pointer` when hover is itself meaningful; it does not click or foreground the target.
@@ -26,7 +26,7 @@ Do not delegate to a dedicated UI worker. Drive this MCP directly in the active 
 2. Call `display_info` before physical-pixel work when monitor origin, DPI scaling, or cross-display placement matters.
 3. Call `inspect_window` or `find_controls`. Prefer a returned stable `control_id` over coordinates.
 4. Perform one state-changing action. Use `invoke` for the default/primary action and `perform_secondary_action` for explicit focus, selection membership, toggle, expand/collapse, or semantic scroll. Semantic/input actions activate the target, re-resolve stale elements, and re-observe afterward.
-5. Inspect the returned verification. Call `wait_for_window` with the main window's `owner_window_id` when a transient dialog may appear; call `wait_for_ui` for navigation, saves, progress, or control-level transitions.
+5. Inspect the returned verification. Call `wait_for_window` with the main window's `owner_window_id` when a transient dialog may appear; call `wait_for_ui` with the narrowest semantic state predicate for navigation, saves, progress, selection, toggles, or control-level transitions.
 6. Reinspect after a major state change. Treat prior coordinates as stale; control ids can be retried because the broker re-locates their selector.
 7. When UIA cannot expose the target, call `find_text` for visible text or `snapshot` for model-side vision. Pass the returned image-relative center and `screenshot_id` to `click`, `scroll`, or `drag` with `coordinate_space=screenshot`. If the broker reports it stale, moved, or resized, observe again instead of retrying blindly.
 8. Use `set_window_state` to restore a minimized target before capture, snapshot, OCR, or visual grounding. Minimized visual requests intentionally fail with recovery guidance.

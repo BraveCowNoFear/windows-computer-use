@@ -28,6 +28,23 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void WaitForUi_AdvertisesSemanticStatePredicatesAsReadOnly()
+    {
+        var wait = Assert.Single(ToolCatalog.All, tool => tool.Name == "wait_for_ui");
+        var schema = JsonSerializer.SerializeToElement(wait.InputSchema, ProtocolJson.Options);
+        var properties = schema.GetProperty("properties");
+        var states = properties.GetProperty("state").GetProperty("enum").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Contains("value_equals", states);
+        Assert.Contains("selected", states);
+        Assert.Contains("toggle_on", states);
+        Assert.Contains("expanded", states);
+        Assert.True(properties.TryGetProperty("expected_value", out _));
+
+        var annotations = JsonSerializer.SerializeToElement(wait.Annotations, ProtocolJson.Options);
+        Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
+    [Fact]
     public void BrokerMessage_RoundTripsUnicodeAndArguments()
     {
         var request = new BrokerRequest("42", "enter_text", JsonSerializer.SerializeToElement(new { text = "hello-\u4f60\u597d" }, ProtocolJson.Options));

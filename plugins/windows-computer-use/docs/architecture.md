@@ -20,6 +20,8 @@ MCP stdout contains only newline-delimited JSON-RPC. Broker diagnostics and MCP 
 
 The broker caches the live `AutomationElement`. If it becomes stale, the broker scans the current tree and re-locates by semantic properties. A major navigation should still be followed by a fresh inspection because the application may intentionally replace the entire view.
 
+`find_controls` and `wait_for_ui` use selector-targeted traversal rather than building a fully state-enriched tree on every poll. Non-matching elements read only identity, layout, focus, and availability; full Pattern state is read only for matched elements, and exact control-id selectors reuse a validated live-element cache. Waits re-resolve the window on every poll, enforce the requested deadline when deciding whether a late observation may match, and support Value, selection, toggle, expand/collapse, and read-only predicates.
+
 ## Action pipeline
 
 State-changing actions run as:

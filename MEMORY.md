@@ -70,6 +70,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Exact numeric window ids are now rehydrated directly from their HWND even if a window is temporarily hidden or untitled. If an application recreates its top-level HWND, an old id follows only a unique replacement with the same process id, native class, and non-empty title; ambiguous matches fail closed.
 - The deterministic E2E fixture adds an edit value, selectable text, a toggle, a selectable list, and explicit top-level HWND recreation. Repeated runs gate Value/read-only exposure, selected text, exact toggle-state diffs, selected-control summaries, constrained window recovery, all prior WGC/OCR/coordinate/dialog/minimize gates, and cleanup.
 
+### v0.9.0 — semantic condition waits
+
+- `wait_for_ui` now supports `value_equals`, `value_contains`, `selected`, `unselected`, `toggle_on`, `toggle_off`, `toggle_indeterminate`, `expanded`, `collapsed`, `readonly`, and `editable` in addition to existence/visibility/focus predicates. Value comparison is optionally case-sensitive.
+- Wait polling re-resolves the HWND each time and never reports an observation completed after the requested deadline as a successful match. UIA calls remain synchronously non-preemptible.
+- `find_controls`/`wait_for_ui` use selector-targeted traversal and enrich Pattern state only for matches. Exact control-id selectors reuse validated live-element locators, preserving stable ids while avoiding full rich-tree reads on every poll.
+- Three consecutive E2E runs using stable control ids passed a Value equality wait in 0-16 ms, a real delayed Toggle transition in 234-235 ms, and a selected-control wait in 125-141 ms, all under a 1500 ms deadline, alongside the complete prior gate set.
+
 ## Current boundaries and next work
 
 - Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.

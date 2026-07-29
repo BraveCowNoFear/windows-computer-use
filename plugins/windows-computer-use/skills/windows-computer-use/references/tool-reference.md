@@ -21,7 +21,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `invoke` | Invoke, select, toggle, expand, or center-click one semantic control. |
 | `perform_secondary_action` | Explicitly focus/raise, select, add/remove selection, toggle, expand/collapse, or UIA-scroll one semantic control. |
 | `enter_text` | Prefer UIA ValuePattern; fall back to focus, select-all, and Unicode SendInput. |
-| `wait_for_ui` | Wait for `exists`, `absent`, `visible`, `hidden`, `enabled`, or `focused`. |
+| `wait_for_ui` | Wait for existence/visibility/focus, Value equality/containment, selected/unselected, toggle on/off/indeterminate, expanded/collapsed, or read-only/editable state. |
 | `capture` | Return PNG image content for a window or virtual desktop and optionally save it. |
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize an existing image or fresh capture with Windows.Media.Ocr. |
@@ -45,3 +45,5 @@ State-changing tools return `backend` and `verification`. `uia3-reobserve` means
 Visual tools reject minimized windows because WGC/PrintWindow output is not dependable in that state. Call `set_window_state` with `restore`, wait for the verified result, and observe again. Use `ownerWindowId`/`rootOwnerWindowId` from `list_windows` or `wait_for_window` to keep transient dialogs associated with the intended main window.
 
 An exact `window_id` is resolved directly as an HWND even when that window is temporarily hidden or untitled. If an app destroys and recreates the HWND, the cached id follows it only when the same process id, native class, and non-empty title identify one unique replacement. Otherwise the broker returns an explicit stale-id error; call `list_windows`/`wait_for_window` and select the replacement rather than guessing.
+
+For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be preempted, but an observation completed after `timeout_ms` is not reported as a successful match.

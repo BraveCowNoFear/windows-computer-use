@@ -546,12 +546,7 @@ public sealed class BrokerDispatcher : IDisposable
         var screenshotId = args.String("screenshot_id");
         if (!string.IsNullOrWhiteSpace(screenshotId))
         {
-            if (args.Bool("desktop") || HasWindowSelector(args))
-                throw new ArgumentException("screenshot_id cannot be combined with desktop=true or a window selector. The cached screenshot is the authoritative source.");
-            if (!_screenshots.TryGetValue(screenshotId, out var source))
-                throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or observe the intended source again before cropping it.");
-            ValidateScreenshotAge(args, source);
-            var cachedWindow = ResolveVisualSource(source);
+            var source = ResolveCachedScreenshot(args, "cropping", out var cachedWindow);
             var cachedRegion = CaptureRegionRectangle(args);
             var cachedCrop = _capture.Crop(source.Capture, cachedRegion, args.String("path"));
             var combinedRegion = source.ImageRegion is null
@@ -598,20 +593,34 @@ public sealed class BrokerDispatcher : IDisposable
 
     private async Task<object> OcrAsync(JsonElement args, CancellationToken cancellationToken)
     {
+        var screenshotId = args.String("screenshot_id");
         var suppliedPath = args.String("path");
+        if (!string.IsNullOrWhiteSpace(screenshotId) && !string.IsNullOrWhiteSpace(suppliedPath))
+            throw new ArgumentException("screenshot_id cannot be combined with path. The cached screenshot is the authoritative OCR source.");
+        if (!string.IsNullOrWhiteSpace(suppliedPath) && (args.Bool("desktop") || HasWindowSelector(args)))
+            throw new ArgumentException("path cannot be combined with desktop=true or a window selector. The existing image is the authoritative OCR source.");
+
         var temporary = string.IsNullOrWhiteSpace(suppliedPath);
         var path = suppliedPath;
         CaptureResult? capture = null;
         WindowDescriptor? capturedWindow = null;
-        if (temporary)
-        {
-            path = Path.Combine(Path.GetTempPath(), $"wcu-ocr-{Guid.NewGuid():N}.png");
-            if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
-            capturedWindow = args.Bool("desktop") ? null : _windows.Resolve(args);
-            capture = RememberCapture(capturedWindow, _capture.Capture(capturedWindow, path));
-        }
         try
         {
+            if (temporary)
+            {
+                path = Path.Combine(Path.GetTempPath(), $"wcu-ocr-{Guid.NewGuid():N}.png");
+                if (!string.IsNullOrWhiteSpace(screenshotId))
+                {
+                    capture = ResolveCachedScreenshot(args, "OCR", out _).Capture;
+                    WriteCapture(path, capture);
+                }
+                else
+                {
+                    if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+                    capturedWindow = args.Bool("desktop") ? null : _windows.Resolve(args);
+                    capture = RememberCapture(capturedWindow, _capture.Capture(capturedWindow, path));
+                }
+            }
             var node = ToJsonObject(await _ocr.RecognizeAsync(path!, args.String("language"), cancellationToken));
             if (capture is not null) AddCaptureMetadata(node, capture);
             return node;
@@ -626,12 +635,22 @@ public sealed class BrokerDispatcher : IDisposable
         if (mode is not "exact" and not "contains") throw new ArgumentException("match must be exact or contains");
         var comparison = args.Bool("case_sensitive") ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         var limit = Math.Clamp(args.Int("limit", 50), 1, 200);
-        if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
-        var window = args.Bool("desktop") ? null : _windows.Resolve(args);
         var path = Path.Combine(Path.GetTempPath(), $"wcu-find-text-{Guid.NewGuid():N}.png");
-        var capture = RememberCapture(window, _capture.Capture(window, path));
         try
         {
+            CaptureResult capture;
+            var screenshotId = args.String("screenshot_id");
+            if (!string.IsNullOrWhiteSpace(screenshotId))
+            {
+                capture = ResolveCachedScreenshot(args, "text recognition", out _).Capture;
+                WriteCapture(path, capture);
+            }
+            else
+            {
+                if (args.Bool("desktop") && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+                var window = args.Bool("desktop") ? null : _windows.Resolve(args);
+                capture = RememberCapture(window, _capture.Capture(window, path));
+            }
             var ocr = ToJsonObject(await _ocr.RecognizeAsync(path, args.String("language"), cancellationToken));
             if (ocr["ok"]?.GetValue<bool>() != true)
                 throw new InvalidOperationException($"Windows OCR failed: {ocr["error"]?.GetValue<string>()}");
@@ -1160,6 +1179,22 @@ public sealed class BrokerDispatcher : IDisposable
         args.Long("window_id") != 0 ||
         !string.IsNullOrWhiteSpace(args.String("title")) ||
         !string.IsNullOrWhiteSpace(args.String("app"));
+
+    private ScreenshotRecord ResolveCachedScreenshot(JsonElement args, string operation, out WindowDescriptor? window)
+    {
+        var screenshotId = args.String("screenshot_id")
+            ?? throw new ArgumentException("screenshot_id is required");
+        if (args.Bool("desktop") || HasWindowSelector(args))
+            throw new ArgumentException($"screenshot_id cannot be combined with desktop=true or a window selector. The cached screenshot is the authoritative source for {operation}.");
+        if (!_screenshots.TryGetValue(screenshotId, out var source))
+            throw new InvalidOperationException($"Unknown or expired screenshot_id. Capture or observe the intended source again before {operation}.");
+        ValidateScreenshotAge(args, source);
+        window = ResolveVisualSource(source);
+        return source;
+    }
+
+    private static void WriteCapture(string path, CaptureResult capture) =>
+        File.WriteAllBytes(path, Convert.FromBase64String(capture.Data));
 
     private static bool IsDirectScreenAction(JsonElement args) =>
         string.Equals(args.String("coordinate_space"), "screen", StringComparison.OrdinalIgnoreCase) &&

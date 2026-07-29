@@ -554,9 +554,27 @@ try {
     if ($pixelSnapshotMeta.capture.bounds.x -ne $pixelSnapshotMeta.inspection.window.visibleBounds.x -or $pixelSnapshotMeta.capture.bounds.y -ne $pixelSnapshotMeta.inspection.window.visibleBounds.y) {
         throw 'WGC image origin does not match the DWM visible frame origin.'
     }
-    $ocrTarget = Invoke-WcuTool -Name 'find_text' -Arguments @{ window_id = $windowId; text = 'SAVE'; match = 'exact'; limit = 10 }
+    $ocrRegionX = [Math]::Max(0, [int]$button.controls[0].bounds.x - [int]$pixelSnapshotMeta.capture.bounds.x - 40)
+    $ocrRegionY = [Math]::Max(0, [int]$button.controls[0].bounds.y - [int]$pixelSnapshotMeta.capture.bounds.y - 20)
+    $ocrRegionRight = [Math]::Min([int]$pixelSnapshotMeta.capture.width, [int]$button.controls[0].bounds.right - [int]$pixelSnapshotMeta.capture.bounds.x + 40)
+    $ocrRegionBottom = [Math]::Min([int]$pixelSnapshotMeta.capture.height, [int]$button.controls[0].bounds.bottom - [int]$pixelSnapshotMeta.capture.bounds.y + 20)
+    $ocrRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $pixelSnapshotMeta.capture.id; x = $ocrRegionX; y = $ocrRegionY; width = ($ocrRegionRight - $ocrRegionX); height = ($ocrRegionBottom - $ocrRegionY) }
+    $ocrRegionMeta = $ocrRegion.content[0].text | ConvertFrom-Json
+    $exactRegionOcr = Invoke-WcuTool -Name 'ocr' -Arguments @{ screenshot_id = $ocrRegionMeta.id }
+    if (-not $exactRegionOcr.ok -or $exactRegionOcr.screenshot_id -ne $ocrRegionMeta.id -or $exactRegionOcr.sha256 -ne $ocrRegionMeta.sha256 -or $exactRegionOcr.text -notmatch 'SAVE') {
+        throw "Exact cached-region OCR did not recognize the same actionable pixels: $($exactRegionOcr | ConvertTo-Json -Depth 8 -Compress)"
+    }
+    $ocrSelectorConflictRejected = $false
+    try {
+        Invoke-WcuTool -Name 'find_text' -Arguments @{ screenshot_id = $ocrRegionMeta.id; window_id = $windowId; text = 'SAVE'; match = 'exact'; limit = 10 } | Out-Null
+    } catch {
+        $ocrSelectorConflictRejected = $_.Exception.Message -like '*screenshot_id cannot be combined*'
+    }
+    if (-not $ocrSelectorConflictRejected) { throw 'Exact cached OCR accepted a conflicting window selector.' }
+    $ocrTarget = Invoke-WcuTool -Name 'find_text' -Arguments @{ screenshot_id = $ocrRegionMeta.id; text = 'SAVE'; match = 'exact'; limit = 10 }
     $ocrMatches = @($ocrTarget.matches | Where-Object { $_.kind -eq 'word' })
-    if ($ocrTarget.count -lt 1 -or $ocrMatches.Count -lt 1 -or -not $ocrTarget.screenshot_id) {
+    if ($ocrTarget.count -lt 1 -or $ocrMatches.Count -lt 1 -or $ocrTarget.screenshot_id -ne $ocrRegionMeta.id -or
+        $ocrTarget.capture_bounds.x -ne $ocrRegionMeta.bounds.x -or $ocrTarget.capture_bounds.y -ne $ocrRegionMeta.bounds.y) {
         throw "OCR text grounding did not resolve the target button: $($ocrTarget | ConvertTo-Json -Depth 8 -Compress)"
     }
     $pixelX = [int]$ocrMatches[0].center.x
@@ -616,14 +634,14 @@ try {
         if ($_.Exception.Message -match 'stale') { $staleDesktopRejected = $true } else { throw }
     }
     if (-not $staleDesktopRejected) { throw 'Stale virtual-desktop screenshot coordinates were not rejected.' }
-    $desktopOcr = Invoke-WcuTool -Name 'find_text' -Arguments @{ desktop = $true; text = 'SAVE'; match = 'exact'; limit = 20 }
+    $desktopOcr = Invoke-WcuTool -Name 'find_text' -Arguments @{ screenshot_id = $desktopMeta.id; text = 'SAVE'; match = 'exact'; limit = 20 }
     $desktopOcrMatches = @($desktopOcr.matches | Where-Object {
         $_.kind -eq 'word' -and
         $_.screen_bounds.x -lt $button.controls[0].bounds.right -and $_.screen_bounds.right -gt $button.controls[0].bounds.x -and
         $_.screen_bounds.y -lt $button.controls[0].bounds.bottom -and $_.screen_bounds.bottom -gt $button.controls[0].bounds.y
     })
-    if (-not $desktopOcr.ok -or -not $desktopOcr.screenshot_id -or $desktopOcr.coordinate_space -ne 'screenshot' -or $desktopOcr.capture_bounds.x -ne $displayInfo.virtualDesktop.x -or $desktopOcr.capture_bounds.y -ne $displayInfo.virtualDesktop.y -or $desktopOcrMatches.Count -lt 1) {
-        throw 'Fresh virtual-desktop OCR grounding did not return an actionable match for the visible button.'
+    if (-not $desktopOcr.ok -or $desktopOcr.screenshot_id -ne $desktopMeta.id -or $desktopOcr.coordinate_space -ne 'screenshot' -or $desktopOcr.capture_bounds.x -ne $displayInfo.virtualDesktop.x -or $desktopOcr.capture_bounds.y -ne $displayInfo.virtualDesktop.y -or $desktopOcrMatches.Count -lt 1) {
+        throw 'Exact cached virtual-desktop OCR grounding did not return an actionable match for the visible button.'
     }
     $desktopButtonX = [int]$desktopOcrMatches[0].center.x
     $desktopButtonY = [int]$desktopOcrMatches[0].center.y
@@ -810,6 +828,9 @@ try {
         desktop_selector_conflict_rejected = $desktopSelectorConflictRejected
         desktop_ocr_screenshot_bound = $desktopOcrMatches.Count
         ocr_text_grounding = $ocrTarget.count
+        exact_region_ocr = $exactRegionOcr.screenshot_id -eq $ocrRegionMeta.id
+        exact_cached_find_text = $ocrTarget.screenshot_id -eq $ocrRegionMeta.id
+        ocr_selector_conflict_rejected = $ocrSelectorConflictRejected
         stale_screenshot_rejected = $staleRejected
         occluded_window_capture = $true
         capture_verified = $true

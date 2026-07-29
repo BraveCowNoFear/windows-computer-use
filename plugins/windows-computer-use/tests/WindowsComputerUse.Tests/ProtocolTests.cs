@@ -247,6 +247,19 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void OcrTools_AdvertiseExactCachedScreenshotGrounding()
+    {
+        foreach (var toolName in new[] { "ocr", "find_text" })
+        {
+            var tool = Assert.Single(ToolCatalog.All, candidate => candidate.Name == toolName);
+            var schema = JsonSerializer.SerializeToElement(tool.InputSchema, ProtocolJson.Options);
+            var properties = schema.GetProperty("properties");
+            Assert.True(properties.TryGetProperty("screenshot_id", out _));
+            Assert.True(properties.TryGetProperty("max_age_ms", out _));
+        }
+    }
+
+    [Fact]
     public void BrokerMessage_RoundTripsUnicodeAndArguments()
     {
         var request = new BrokerRequest("42", "enter_text", JsonSerializer.SerializeToElement(new { text = "hello-\u4f60\u597d" }, ProtocolJson.Options));

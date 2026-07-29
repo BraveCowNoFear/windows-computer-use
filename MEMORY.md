@@ -190,6 +190,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Thirty-two unit tests gate the new optional `screenshot_id`/`max_age_ms` schema. Real WGC E2E crops the existing atomic desktop observation to 64x64, crops that result again to 32x32, proves physical pointer mapping, rejects a conflicting window selector, derives both visual-change and visual-stability regions from their exact observed window frames, and completes the full prior gate.
 - The first combined gate exposed one old OCR helper run that exited successfully with invalid JSON despite the preceding standalone E2E passing. The helper and broker stream reader now agree on BOM-free UTF-8, and only this read-only saved-image recognition is retried once when a successful helper exit still produces malformed JSON; UI input is never replayed.
 
+### v0.27.0 — exact cached screenshot OCR and text grounding
+
+- `ocr` and `find_text` now accept a fresh `screenshot_id` for full, cropped, or nested-cropped images. They validate age plus original window geometry/desktop topology and recognize the cached PNG bytes without acquiring a second frame; selectors are rejected because the screenshot is authoritative. `ocr path` is likewise explicit and mutually exclusive with cached/fresh selectors.
+- Exact recognition materializes only a temporary local PNG for the Windows Runtime adapter and deletes it on success/failure. The returned OCR metadata retains the original screenshot id/hash/bounds, while `find_text` line/word centers and physical bounds remain directly actionable against the exact recognized pixels.
+- Thirty-three unit tests gate `screenshot_id` and `max_age_ms` for both tools. Real WGC E2E derives a padded button region from an atomic snapshot, proves exact region OCR and exact `find_text` share its id/hash/bounds, rejects a conflicting selector, clicks through the region-relative center, then uses exact cached full-desktop OCR to complete the whole-screen action path.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

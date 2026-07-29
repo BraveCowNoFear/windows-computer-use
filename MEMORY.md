@@ -183,6 +183,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - The first chained stability E2E exposed that wait results initially lost private crop identity even though their PNG/bounds were correct. Wait results now inherit source bounds and region, so a timeout image can feed the next wait or screenshot-bound action without being mistaken for a full frame.
 - Thirty-two unit tests gate rectangle requirements/read-only schema. Real WGC E2E captures and physically maps a 64x64 desktop region, detects the delayed Toggle transition in a 172x40 window region, chains timeout-to-stable waits over a 340x60 heading region, and completes all prior semantic, input, clipboard, OCR, image, lifecycle, and cleanup gates.
 
+### v0.26.0 — exact cached and nested screenshot crops
+
+- `capture_region` can now take a fresh `screenshot_id` and crop the exact cached PNG bytes rather than acquiring a second frame after observation. The screenshot is authoritative: mixing it with `desktop=true` or a window selector fails before capture; age plus original window geometry or desktop topology are revalidated.
+- Screenshot records retain their compressed capture under a 32-entry and 32 MiB base64-character budget while always preserving the newest record. A crop keeps full-source identity, and nested crop offsets are combined relative to that original full image so later screenshot-space input and region-scoped waits remain correct.
+- Thirty-two unit tests gate the new optional `screenshot_id`/`max_age_ms` schema. Real WGC E2E crops the existing atomic desktop observation to 64x64, crops that result again to 32x32, proves physical pointer mapping, rejects a conflicting window selector, derives both visual-change and visual-stability regions from their exact observed window frames, and completes the full prior gate.
+- The first combined gate exposed one old OCR helper run that exited successfully with invalid JSON despite the preceding standalone E2E passing. The helper and broker stream reader now agree on BOM-free UTF-8, and only this read-only saved-image recognition is retried once when a successful helper exit still produces malformed JSON; UI input is never replayed.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

@@ -4,6 +4,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8
+[Console]::InputEncoding = $utf8
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
 [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
@@ -59,8 +62,9 @@ try {
             words = $words
         }
     })
-    [ordered]@{ ok = $true; backend = 'windows-media-ocr'; language = $engine.RecognizerLanguage.LanguageTag; text = $result.Text; lines = $lines } |
+    $json = [ordered]@{ ok = $true; backend = 'windows-media-ocr'; language = $engine.RecognizerLanguage.LanguageTag; text = $result.Text; lines = $lines } |
         ConvertTo-Json -Depth 8 -Compress
+    [Console]::Out.WriteLine($json)
 } catch {
     [Console]::Error.WriteLine($_.Exception.ToString())
     exit 1

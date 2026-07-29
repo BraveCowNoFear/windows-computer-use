@@ -209,7 +209,10 @@ public sealed class ProtocolTests
         Assert.Contains("y", required);
         Assert.Contains("width", required);
         Assert.Contains("height", required);
-        Assert.True(schema.GetProperty("properties").TryGetProperty("desktop", out _));
+        var properties = schema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("desktop", out _));
+        Assert.True(properties.TryGetProperty("screenshot_id", out _));
+        Assert.True(properties.TryGetProperty("max_age_ms", out _));
 
         var annotations = JsonSerializer.SerializeToElement(capture.Annotations, ProtocolJson.Options);
         Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());

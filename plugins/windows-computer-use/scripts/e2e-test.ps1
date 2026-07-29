@@ -111,7 +111,7 @@ try {
     if (-not $observationMove.ok -or $observationMove.coordinate_space -ne 'screenshot') {
         throw 'Atomic desktop observation screenshot id was not actionable.'
     }
-    $desktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ desktop = $true; x = 0; y = 0; width = 64; height = 64 }
+    $desktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $desktopObservationMeta.capture.id; x = 0; y = 0; width = 64; height = 64 }
     if (@($desktopRegion.content).Count -ne 2 -or $desktopRegion.content[1].type -ne 'image' -or -not $desktopRegion.content[1].data) {
         throw 'Desktop region capture did not return metadata plus a cropped PNG.'
     }
@@ -125,6 +125,18 @@ try {
     $desktopRegionMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $desktopRegionMeta.id }
     if (-not $desktopRegionMove.ok -or $desktopRegionMove.screen_position.x -ne ($desktopRegionMeta.bounds.x + 10) -or $desktopRegionMove.screen_position.y -ne ($desktopRegionMeta.bounds.y + 10)) {
         throw 'Desktop region screenshot coordinates did not map back to physical pixels.'
+    }
+    $nestedDesktopRegion = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $desktopRegionMeta.id; x = 8; y = 8; width = 32; height = 32 }
+    $nestedDesktopRegionMeta = $nestedDesktopRegion.content[0].text | ConvertFrom-Json
+    if ($nestedDesktopRegionMeta.width -ne 32 -or $nestedDesktopRegionMeta.height -ne 32 -or
+        $nestedDesktopRegionMeta.bounds.x -ne ($desktopRegionMeta.bounds.x + 8) -or
+        $nestedDesktopRegionMeta.bounds.y -ne ($desktopRegionMeta.bounds.y + 8) -or
+        $nestedDesktopRegionMeta.backend -notlike '*+region+region') {
+        throw "Nested cached crop did not retain its full-desktop physical identity: $($nestedDesktopRegionMeta | ConvertTo-Json -Depth 5 -Compress)"
+    }
+    $nestedRegionMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 5; y = 5; coordinate_space = 'screenshot'; screenshot_id = $nestedDesktopRegionMeta.id }
+    if (-not $nestedRegionMove.ok -or $nestedRegionMove.screen_position.x -ne ($nestedDesktopRegionMeta.bounds.x + 5) -or $nestedRegionMove.screen_position.y -ne ($nestedDesktopRegionMeta.bounds.y + 5)) {
+        throw 'Nested cached crop was not directly actionable in screenshot coordinates.'
     }
 
     $windows = Invoke-WcuTool -Name 'list_windows'
@@ -404,7 +416,14 @@ try {
     $toggleRegionY = [Math]::Max(0, [int]$toggle.controls[0].bounds.y - [int]$visualFrameMeta.bounds.y - 6)
     $toggleRegionWidth = [Math]::Min([int]$visualFrameMeta.width - $toggleRegionX, [int]$toggle.controls[0].bounds.width + 12)
     $toggleRegionHeight = [Math]::Min([int]$visualFrameMeta.height - $toggleRegionY, [int]$toggle.controls[0].bounds.height + 12)
-    $visualBaseline = Invoke-WcuTool -Name 'capture_region' -Arguments @{ window_id = $windowId; x = $toggleRegionX; y = $toggleRegionY; width = $toggleRegionWidth; height = $toggleRegionHeight }
+    $cropSelectorConflictRejected = $false
+    try {
+        Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $visualFrameMeta.id; window_id = $windowId; x = $toggleRegionX; y = $toggleRegionY; width = $toggleRegionWidth; height = $toggleRegionHeight } | Out-Null
+    } catch {
+        $cropSelectorConflictRejected = $_.Exception.Message -like '*screenshot_id cannot be combined*'
+    }
+    if (-not $cropSelectorConflictRejected) { throw 'Cached screenshot crop accepted a conflicting window selector.' }
+    $visualBaseline = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $visualFrameMeta.id; x = $toggleRegionX; y = $toggleRegionY; width = $toggleRegionWidth; height = $toggleRegionHeight }
     $visualBaselineMeta = $visualBaseline.content[0].text | ConvertFrom-Json
     if ($visualBaselineMeta.width -ne $toggleRegionWidth -or $visualBaselineMeta.height -ne $toggleRegionHeight -or $visualBaselineMeta.backend -notlike '*+region') {
         throw 'Window region capture did not preserve the requested image-relative rectangle.'
@@ -444,7 +463,7 @@ try {
     $headingRegionY = [Math]::Max(0, [int]$heading.controls[0].bounds.y - [int]$stableFrameMeta.bounds.y - 6)
     $headingRegionWidth = [Math]::Min([int]$stableFrameMeta.width - $headingRegionX, 340)
     $headingRegionHeight = [Math]::Min([int]$stableFrameMeta.height - $headingRegionY, 60)
-    $stableBaseline = Invoke-WcuTool -Name 'capture_region' -Arguments @{ window_id = $windowId; x = $headingRegionX; y = $headingRegionY; width = $headingRegionWidth; height = $headingRegionHeight }
+    $stableBaseline = Invoke-WcuTool -Name 'capture_region' -Arguments @{ screenshot_id = $stableFrameMeta.id; x = $headingRegionX; y = $headingRegionY; width = $headingRegionWidth; height = $headingRegionHeight }
     $stableBaselineMeta = $stableBaseline.content[0].text | ConvertFrom-Json
     $visualUnstable = Invoke-WcuTool -Name 'wait_for_visual_stable' -Arguments @{ screenshot_id = $stableBaselineMeta.id; stable_ms = 500; timeout_ms = 500; poll_ms = 50 }
     if (@($visualUnstable.content).Count -ne 2 -or $visualUnstable.content[1].type -ne 'image' -or -not $visualUnstable.content[1].data) {

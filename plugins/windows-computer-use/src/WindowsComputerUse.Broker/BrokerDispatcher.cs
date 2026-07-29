@@ -7,6 +7,9 @@ namespace WindowsComputerUse.Broker;
 
 public sealed class BrokerDispatcher : IDisposable
 {
+    private const int MaxScreenshotCacheEntries = 32;
+    private const long MaxScreenshotCacheBase64Chars = 32L * 1024 * 1024;
+
     private readonly WindowService _windows = new();
     private readonly InputService _input = new();
     private readonly CaptureService _capture = new();
@@ -540,14 +543,38 @@ public sealed class BrokerDispatcher : IDisposable
 
     private CaptureResult CaptureRegion(JsonElement args)
     {
+        var screenshotId = args.String("screenshot_id");
+        if (!string.IsNullOrWhiteSpace(screenshotId))
+        {
+            if (args.Bool("desktop") || HasWindowSelector(args))
+                throw new ArgumentException("screenshot_id cannot be combined with desktop=true or a window selector. The cached screenshot is the authoritative source.");
+            if (!_screenshots.TryGetValue(screenshotId, out var source))
+                throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or observe the intended source again before cropping it.");
+            ValidateScreenshotAge(args, source);
+            var cachedWindow = ResolveVisualSource(source);
+            var cachedRegion = CaptureRegionRectangle(args);
+            var cachedCrop = _capture.Crop(source.Capture, cachedRegion, args.String("path"));
+            var combinedRegion = source.ImageRegion is null
+                ? cachedRegion
+                : new RectDto(
+                    source.ImageRegion.X + cachedRegion.X,
+                    source.ImageRegion.Y + cachedRegion.Y,
+                    cachedRegion.Width,
+                    cachedRegion.Height);
+            return RememberCapture(cachedWindow, cachedCrop, source.SourceBounds, combinedRegion);
+        }
+
         var desktop = args.Bool("desktop");
         if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
         var window = desktop ? null : _windows.Resolve(args);
         var full = _capture.Capture(window);
-        var region = new RectDto(args.Int("x"), args.Int("y"), args.Int("width"), args.Int("height"));
+        var region = CaptureRegionRectangle(args);
         var cropped = _capture.Crop(full, region, args.String("path"));
         return RememberCapture(window, cropped, full.Bounds, region);
     }
+
+    private static RectDto CaptureRegionRectangle(JsonElement args) =>
+        new(args.Int("x"), args.Int("y"), args.Int("width"), args.Int("height"));
 
     private DesktopStateSnapshot ObserveDesktop(JsonElement args)
     {
@@ -1149,11 +1176,12 @@ public sealed class BrokerDispatcher : IDisposable
             window?.Id,
             window?.Bounds,
             sourceBounds ?? capture.Bounds,
-            capture.Bounds,
             imageRegion,
-            capture.CapturedAt,
-            capture.Sha256);
-        while (_screenshots.Count > 32) _screenshots.Remove(_screenshots.First().Key);
+            capture);
+        while (_screenshots.Count > 1 &&
+               (_screenshots.Count > MaxScreenshotCacheEntries ||
+                _screenshots.Values.Sum(record => (long)record.Capture.Data.Length) > MaxScreenshotCacheBase64Chars))
+            _screenshots.Remove(_screenshots.First().Key);
         return capture;
     }
 
@@ -1318,8 +1346,11 @@ public sealed class BrokerDispatcher : IDisposable
         long? WindowId,
         RectDto? WindowBounds,
         RectDto SourceBounds,
-        RectDto CaptureBounds,
         RectDto? ImageRegion,
-        DateTimeOffset CapturedAt,
-        string Sha256);
+        CaptureResult Capture)
+    {
+        public RectDto CaptureBounds => Capture.Bounds;
+        public DateTimeOffset CapturedAt => Capture.CapturedAt;
+        public string Sha256 => Capture.Sha256;
+    }
 }

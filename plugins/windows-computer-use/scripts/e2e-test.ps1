@@ -13,6 +13,8 @@ $testApp = $null
 $occluder = $null
 $mcp = $null
 $capturePath = Join-Path $env:TEMP ("windows-computer-use-e2e-{0}.png" -f [guid]::NewGuid().ToString('N'))
+$visualSourcePath = Join-Path $env:TEMP ("windows-computer-use-visual-source-{0}.png" -f [guid]::NewGuid().ToString('N'))
+$templatePath = Join-Path $env:TEMP ("windows-computer-use-template-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $nextId = 0
 
 function Invoke-McpRequest {
@@ -66,7 +68,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 25) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 26) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -232,6 +234,46 @@ try {
     $pixelWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $pixelExpected; state = 'exists'; timeout_ms = 5000 }
     if (-not $pixelWait.matched) { throw 'Screenshot-space coordinate mapping did not invoke the target button.' }
 
+    $script:stage = 'image-grounding'
+    $imageText = 'Image matched'
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $imageText } | Out-Null
+    $currentButton = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
+    if ($currentButton.count -ne 1) { throw 'Could not resolve the visual template source control.' }
+    $visualCapture = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId; path = $visualSourcePath }
+    $visualMeta = $visualCapture.content[0].text | ConvertFrom-Json
+    $cropX = [int]$currentButton.controls[0].bounds.x - [int]$visualMeta.bounds.x
+    $cropY = [int]$currentButton.controls[0].bounds.y - [int]$visualMeta.bounds.y
+    $cropWidth = [int]$currentButton.controls[0].bounds.width
+    $cropHeight = [int]$currentButton.controls[0].bounds.height
+    if ($cropX -lt 0 -or $cropY -lt 0 -or $cropWidth -lt 2 -or $cropHeight -lt 2 -or $cropX + $cropWidth -gt $visualMeta.width -or $cropY + $cropHeight -gt $visualMeta.height) {
+        throw 'UIA button bounds could not be mapped into the visual source capture.'
+    }
+    Add-Type -AssemblyName System.Drawing
+    $sourceBitmap = $null
+    $templateBitmap = $null
+    try {
+        $sourceBitmap = [System.Drawing.Bitmap]::FromFile($visualSourcePath)
+        $cropRectangle = [System.Drawing.Rectangle]::new($cropX, $cropY, $cropWidth, $cropHeight)
+        $templateBitmap = $sourceBitmap.Clone($cropRectangle, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $templateBitmap.Save($templatePath, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        if ($null -ne $templateBitmap) { $templateBitmap.Dispose() }
+        if ($null -ne $sourceBitmap) { $sourceBitmap.Dispose() }
+    }
+    $imageTarget = Invoke-WcuTool -Name 'find_image' -Arguments @{ window_id = $windowId; template_path = $templatePath; threshold = 0.97; max_results = 5 }
+    $imageMatches = @($imageTarget.matches | Where-Object {
+        $_.screen_bounds.x -lt $currentButton.controls[0].bounds.right -and $_.screen_bounds.right -gt $currentButton.controls[0].bounds.x -and
+        $_.screen_bounds.y -lt $currentButton.controls[0].bounds.bottom -and $_.screen_bounds.bottom -gt $currentButton.controls[0].bounds.y
+    })
+    if ($imageTarget.count -lt 1 -or $imageMatches.Count -lt 1 -or $imageMatches[0].score -lt 0.97 -or $imageTarget.elapsed_ms -gt 2000 -or -not $imageTarget.screenshot_id) {
+        throw "Local image template grounding did not resolve the button: $($imageTarget | ConvertTo-Json -Depth 8 -Compress)"
+    }
+    $imageClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = [int]$imageMatches[0].center.x; y = [int]$imageMatches[0].center.y; coordinate_space = 'screenshot'; screenshot_id = $imageTarget.screenshot_id }
+    if (-not $imageClick.ok) { throw 'Image-template screenshot-bound click failed.' }
+    $imageExpected = 'Saved: ' + $imageText
+    $imageWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $imageExpected; state = 'exists'; timeout_ms = 5000 }
+    if (-not $imageWait.matched) { throw 'Image-template coordinate mapping did not invoke the target button.' }
+
     $occluder = Start-Process -FilePath $testAppPath -ArgumentList '--occluder' -PassThru
     $occluderDeadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
@@ -333,6 +375,10 @@ try {
         delayed_toggle_wait_ms = $toggleWait.elapsed_ms
         selection_condition_wait = $selectionWait.matched
         selection_condition_wait_ms = $selectionWait.elapsed_ms
+        image_template_grounding = $imageTarget.count
+        image_match_score = $imageMatches[0].score
+        image_match_ms = $imageTarget.elapsed_ms
+        image_screenshot_space_mapping = $imageWait.matched
         recreated_window_recovered = $true
         window_handle_changed = $windowHandleChanged
     } | ConvertTo-Json -Depth 6
@@ -354,5 +400,11 @@ try {
     }
     if (-not $KeepArtifacts -and (Test-Path -LiteralPath $capturePath)) {
         Remove-Item -LiteralPath $capturePath -Force
+    }
+    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $visualSourcePath)) {
+        Remove-Item -LiteralPath $visualSourcePath -Force
+    }
+    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $templatePath)) {
+        Remove-Item -LiteralPath $templatePath -Force
     }
 }

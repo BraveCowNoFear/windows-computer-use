@@ -26,6 +26,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize an existing image or fresh capture with Windows.Media.Ocr. |
 | `find_text` | Fresh-capture a window and return matching OCR line/word bounds, centers, and screenshot id. |
+| `find_image` | Fresh-capture a window and locate an exact-scale local PNG/JPEG template, returning scored screenshot/screen bounds, centers, and screenshot id. |
 | `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
 | `click` | Click window-relative or screen coordinates with left, right, or middle button. |
 | `press_key` | Send a `+`-separated chord such as `ctrl+s`, `alt+f4`, or `shift+tab`. |

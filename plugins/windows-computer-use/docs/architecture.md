@@ -44,11 +44,12 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 - Displays and DPI: `EnumDisplayMonitors` + `GetMonitorInfo` physical virtual-screen rectangles and effective per-monitor DPI from Shcore.
 - Input: User32 `SendInput` plus verified `GetCursorPos`/`SetCursorPos`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard. Pointer moves support immediate or smooth screen/window/screenshot-space hover without activating a window.
 - OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs. Lines/words carry image bounds; `find_text` returns screenshot and screen bounds plus image-relative centers.
+- Image templates: local exact-scale PNG/JPEG matching over a fresh capture. A coarse-to-fine 12x12 sampled BGRA color-distance search, transparent-template weighting, bounded top-candidate queues, and overlap suppression return image/screen bounds plus a screenshot-bound center without uploading pixels.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
 - Window lifecycle: direct HWND rehydration, verified Win32 minimize/maximize/restore, and owner-chain discovery. Visual tools reject minimized targets with explicit restore guidance instead of returning misleading frames.
 
 ## Known gaps
 
-- There is no local visual-language model or template/image matcher yet; OCR plus model-side image reasoning is the visual fallback.
+- There is no local visual-language model or scale/rotation-invariant feature matcher yet. Exact-scale templates, OCR, and model-side image reasoning form the current visual fallback stack.
 - Secure desktop and higher-integrity windows require matching Windows privileges.
 - Deterministic minimized/restore and owned-dialog transitions plus Explorer, Settings, Word, Excel, VS Code/Electron, WeChat, and SolidWorks gates are implemented. The current development machine has one 150%-scaled display, so true multi-monitor/mixed-DPI, remote-desktop, protected-window, and elevated-process runs remain external matrix items.

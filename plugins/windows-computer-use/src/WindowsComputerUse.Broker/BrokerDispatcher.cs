@@ -12,6 +12,7 @@ public sealed class BrokerDispatcher : IDisposable
     private readonly CaptureService _capture = new();
     private readonly DisplayService _displays = new();
     private readonly OcrService _ocr = new();
+    private readonly ImageMatcherService _imageMatcher = new();
     private readonly UiaService _uia;
     private readonly AuditLogger _audit = new();
     private readonly string _sessionId = $"session-{Guid.NewGuid():N}";
@@ -33,7 +34,7 @@ public sealed class BrokerDispatcher : IDisposable
                     ok = true,
                     session_id = _sessionId,
                     access_mode = "full-control",
-                    backends = new[] { "uia3", "win32", "sendinput", "windows-graphics-capture", "print-window", "windows-media-ocr" },
+                    backends = new[] { "uia3", "win32", "sendinput", "windows-graphics-capture", "print-window", "windows-media-ocr", "local-template-matching" },
                     dpi_awareness = "per-monitor-v2"
                 },
                 "list_windows" => new
@@ -57,6 +58,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "snapshot" => Snapshot(args),
                 "ocr" => await OcrAsync(args, cancellationToken),
                 "find_text" => await FindTextAsync(args, cancellationToken),
+                "find_image" => FindImage(args),
                 "move_pointer" => MovePointer(args),
                 "click" => Click(args),
                 "press_key" => PressKey(args),
@@ -81,7 +83,7 @@ public sealed class BrokerDispatcher : IDisposable
     public void Dispose() => _uia.Dispose();
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or
         "move_pointer" or "click" or "press_key" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
 
     private object Launch(JsonElement args)
@@ -314,6 +316,14 @@ public sealed class BrokerDispatcher : IDisposable
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    private object FindImage(JsonElement args)
+    {
+        var templatePath = args.String("template_path") ?? throw new ArgumentException("template_path is required");
+        var window = _windows.Resolve(args);
+        var capture = RememberCapture(window, _capture.Capture(window));
+        return _imageMatcher.Find(templatePath, capture, args.Double("threshold", 0.92), args.Int("max_results", 10));
     }
 
     private object MovePointer(JsonElement args)

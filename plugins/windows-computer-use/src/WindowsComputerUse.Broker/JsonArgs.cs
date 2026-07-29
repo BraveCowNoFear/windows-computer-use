@@ -24,6 +24,13 @@ internal static class JsonArgs
         return long.TryParse(property.ToString(), out result) ? result : fallback;
     }
 
+    public static double Double(this JsonElement value, string name, double fallback = 0)
+    {
+        if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out var property)) return fallback;
+        if (property.TryGetDouble(out var result)) return result;
+        return double.TryParse(property.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out result) ? result : fallback;
+    }
+
     public static bool Bool(this JsonElement value, string name, bool fallback = false)
     {
         if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out var property)) return fallback;

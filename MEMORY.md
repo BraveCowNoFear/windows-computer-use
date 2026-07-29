@@ -77,6 +77,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - `find_controls`/`wait_for_ui` use selector-targeted traversal and enrich Pattern state only for matches. Exact control-id selectors reuse validated live-element locators, preserving stable ids while avoiding full rich-tree reads on every poll.
 - Three consecutive E2E runs using stable control ids passed a Value equality wait in 0-16 ms, a real delayed Toggle transition in 234-235 ms, and a selected-control wait in 125-141 ms, all under a 1500 ms deadline, alongside the complete prior gate set.
 
+### v0.10.0 — local non-text template grounding
+
+- Added `find_image`, making 26 MCP tools. It fresh-captures one window and matches an exact-scale local PNG/JPEG using bounded coarse-to-fine sampled BGRA color distance, alpha weighting, top-candidate queues, and overlap suppression.
+- Results contain score, screenshot-relative bounds/center, physical screen bounds, fresh screenshot id/time/hash, and `coordinate_space=screenshot`; they feed directly into the existing stale-checked pointer/click/scroll/drag path.
+- Unit coverage builds a synthetic unique-color target and proves exact screenshot/screen coordinate recovery. Three consecutive real E2E runs crop a button from WGC, re-find it in a new WGC frame at score 1.0 in 78 ms without OCR, click through the returned screenshot id, and verify the changed UIA state.
+- Matching is intentionally exact-scale rather than falsely claiming scale/rotation-invariant vision. Novel image understanding still uses model-side vision; current local fallbacks are UIA -> OCR -> known template -> screenshot/model -> physical pixels.
+
 ## Current boundaries and next work
 
 - Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.

@@ -36,6 +36,8 @@ public static class ToolCatalog
             WindowProps(("desktop", S("boolean", "OCR the virtual desktop.")), ("path", S("string", "Existing image path; when omitted a fresh capture is used.")), ("language", S("string", "Optional BCP-47 language tag.")))),
         Tool("find_text", "Capture one window, run Windows OCR, and return matching line/word bounds plus a screenshot id for coordinate_space=screenshot actions.",
             WindowProps(("text", S("string", "OCR text to locate.")), ("match", Enum("exact", "contains")), ("case_sensitive", S("boolean", "Use ordinal case-sensitive matching.")), ("language", S("string", "Optional BCP-47 language tag.")), ("limit", S("integer", "Maximum matches, default 50."))), ["text"]),
+        Tool("find_image", "Capture one window and locate an exact-scale local PNG/JPEG template without OCR, returning screenshot-bound coordinates.",
+            WindowProps(("template_path", S("string", "Local image template path.")), ("threshold", S("number", "Color-similarity threshold from 0.5 to 1.0, default 0.92.")), ("max_results", S("integer", "Maximum non-overlapping matches, default 10."))), ["template_path"]),
         Tool("move_pointer", "Move or smoothly hover the mouse pointer without clicking or activating a target window. Screen coordinates need no window selector.",
             WindowProps(("x", S("integer", "Target X coordinate.")), ("y", S("integer", "Target Y coordinate.")), ("coordinate_space", Enum("window", "screen", "screenshot")), ("screenshot_id", S("string", "Fresh screenshot id; required for screenshot coordinates and can identify its window.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms.")), ("duration_ms", S("integer", "Smooth movement duration from 0 to 10000 ms."))), ["x", "y"]),
         Tool("click", "Click physical pixels in a selected window using SendInput. Coordinates are window-relative by default.",
@@ -58,7 +60,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "snapshot" or "ocr" or "find_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

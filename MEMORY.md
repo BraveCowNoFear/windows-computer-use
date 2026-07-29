@@ -256,6 +256,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - 启动画面只表示真实桌面观察，精确窗口就绪仍由返回的进程 ID 配合 `wait_for_window` 判定；`wait_ms=0` 或无界面目标允许视觉不变。
 - 新增独立 `LaunchVisual` 场景，没有运行旧启动或窗口套件。Release 构建与定向真实 WGC/MCP 运行共 15.2 秒，验证第二个真实测试进程、独立顶层窗口和可比较启动变化，随后按 PID 清理，42 工具握手正常且会话无输入残留。
 
+### v0.38.0 — 未绑定点击自动视觉基线
+
+- `click` 的三条坐标路径现在都返回精确视觉差异：截图绑定路径继续复用权威前帧；未绑定窗口路径在激活后自动抓取选定窗口；无选择器的直接屏幕路径自动比较完整虚拟桌面。
+- 自动基线只增强动作后验证，不放宽截图 ID 的年龄、目标身份或几何校验；已有 `window-and-screenshot-reobserve`、`desktop-screenshot-reobserve` 与 `screen-input-and-desktop-reobserve` 主策略保持兼容。
+- 新增独立 `ClickVisual` 场景，没有运行旧像素输入套件。Release 构建与定向真实 WGC/MCP 运行共 17.1 秒，验证未绑定窗口 Save 点击和直接屏幕 Toggle 点击均发生可比较变化且语义结果到位，42 工具握手正常且会话无输入残留。
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

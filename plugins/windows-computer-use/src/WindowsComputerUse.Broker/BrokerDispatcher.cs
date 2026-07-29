@@ -901,21 +901,35 @@ public sealed class BrokerDispatcher : IDisposable
         if (IsDirectScreenAction(args))
         {
             var screenPoint = (X: args.Int("x"), Y: args.Int("y"));
-            _input.Click(screenPoint.X, screenPoint.Y, args.String("button") ?? "left", args.Int("count", 1));
-            _screenshots.Clear();
-            Thread.Sleep(100);
-            var screenAfterCapture = RememberCapture(null, _capture.Capture(null));
+            var visual = RunDesktopVisualAction(() =>
+            {
+                _input.Click(screenPoint.X, screenPoint.Y, args.String("button") ?? "left", args.Int("count", 1));
+                return true;
+            });
             return new ActionResult(
                 true,
                 "click",
                 "sendinput",
-                new ActionVerification(true, "screen-input-and-desktop-reobserve", null, screenAfterCapture.Sha256),
-                new { x = screenPoint.X, y = screenPoint.Y, coordinate_space = "physical-screen-pixels", after_screenshot_id = screenAfterCapture.Id });
+                new ActionVerification(true, "screen-input-and-desktop-reobserve", visual.Before.Sha256, visual.After.Sha256),
+                new
+                {
+                    x = screenPoint.X,
+                    y = screenPoint.Y,
+                    coordinate_space = "physical-screen-pixels",
+                    after_screenshot_id = visual.After.Id,
+                    visual_changed = visual.Before.Sha256 != visual.After.Sha256,
+                    visual_diff = ActionVisualDiff(visual.Before, visual.After)
+                });
         }
         var resolved = _windows.Resolve(args);
         var beforeCapture = ValidateScreenshot(args, resolved);
         var window = _windows.Activate(resolved);
         var point = ResolvePoint(args, window, beforeCapture, "x", "y");
+        if (beforeCapture is null)
+        {
+            var automaticBaseline = RememberCapture(window, _capture.Capture(window));
+            beforeCapture = _screenshots[automaticBaseline.Id];
+        }
         _input.Click(point.X, point.Y, args.String("button") ?? "left", args.Int("count", 1));
         _screenshots.Clear();
         Thread.Sleep(100);

@@ -2,7 +2,7 @@ param(
     [switch]$KeepTestWindow,
     [switch]$KeepArtifacts,
     [switch]$RequireWgc,
-    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual', 'LaunchVisual')][string]$Scenario = 'All'
+    [ValidateSet('All', 'KeyboardVisual', 'SemanticVisual', 'ClipboardVisual', 'WindowVisual', 'LaunchVisual', 'ClickVisual')][string]$Scenario = 'All'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -349,6 +349,54 @@ try {
             launch_visual = $launched.visual_diff.changed
             launched_process_id = $launched.process_id
             launched_window_id = $launchedWindow.windows[0].id
+            released_keys = $ended.released_keys
+            released_buttons = $ended.released_buttons
+        } | ConvertTo-Json -Depth 5
+        return
+    }
+
+    if ($Scenario -eq 'ClickVisual') {
+        $script:stage = 'click-visual-only'
+        $windows = Invoke-WcuTool -Name 'list_windows'
+        $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+        if ($target.Count -ne 1) { throw "Expected one click visual target, found $($target.Count)." }
+        $windowId = [long]$target[0].id
+        $input = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'InputBox'; limit = 2 }
+        $button = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'CommitButton'; limit = 2 }
+        $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
+        if ($input.count -ne 1 -or $button.count -ne 1 -or $toggle.count -ne 1) {
+            throw 'Could not uniquely resolve the click visual controls.'
+        }
+
+        $testText = 'Click ' + [char]0x89C6 + [char]0x89C9 + ' ' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+        Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
+        $buttonX = [int]$button.controls[0].bounds.x - [int]$target[0].bounds.x + [int]($button.controls[0].bounds.width / 2)
+        $buttonY = [int]$button.controls[0].bounds.y - [int]$target[0].bounds.y + [int]($button.controls[0].bounds.height / 2)
+        $windowClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = $buttonX; y = $buttonY; coordinate_space = 'window' }
+        if (-not $windowClick.ok -or -not $windowClick.verification.verified -or -not $windowClick.data.after_screenshot_id -or
+            -not $windowClick.data.visual_diff.comparable -or -not $windowClick.data.visual_diff.changed) {
+            throw "Unbound window click omitted changed visual evidence: $($windowClick | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $statusWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = "Saved: $testText"; state = 'exists'; timeout_ms = 1500 }
+        if (-not $statusWait.matched) { throw 'Unbound window click did not invoke the Save button.' }
+
+        $toggleX = [int]$toggle.controls[0].bounds.x + [int]($toggle.controls[0].bounds.width / 2)
+        $toggleY = [int]$toggle.controls[0].bounds.y + [int]($toggle.controls[0].bounds.height / 2)
+        $screenClick = Invoke-WcuTool -Name 'click' -Arguments @{ x = $toggleX; y = $toggleY; coordinate_space = 'screen' }
+        if (-not $screenClick.ok -or -not $screenClick.verification.verified -or -not $screenClick.data.after_screenshot_id -or
+            -not $screenClick.data.visual_diff.comparable -or -not $screenClick.data.visual_diff.changed) {
+            throw "Direct screen click omitted changed desktop evidence: $($screenClick | ConvertTo-Json -Depth 7 -Compress)"
+        }
+        $toggleWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $toggle.controls[0].id; state = 'toggle_on'; timeout_ms = 1500 }
+        if (-not $toggleWait.matched) { throw 'Direct screen click did not toggle the feature control.' }
+
+        $ended = Invoke-WcuTool -Name 'end_session'
+        [ordered]@{
+            ok = $true
+            scenario = 'click-visual'
+            tools = @($tools.tools).Count
+            window_click_visual = $windowClick.data.visual_diff.changed
+            screen_click_visual = $screenClick.data.visual_diff.changed
             released_keys = $ended.released_keys
             released_buttons = $ended.released_buttons
         } | ConvertTo-Json -Depth 5

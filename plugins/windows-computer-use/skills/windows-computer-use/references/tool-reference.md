@@ -27,6 +27,9 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `ocr` | Recognize an existing image or fresh window/desktop capture with Windows.Media.Ocr; fresh captures are screenshot-bound. |
 | `find_text` | Fresh-capture a window or desktop and return matching OCR line/word bounds, centers, and actionable screenshot id. |
 | `find_image` | Fresh-capture a window or desktop and locate a local PNG/JPEG template at exact scale by default or across a bounded scale range, returning score, matched scale, screenshot/screen bounds, center, and screenshot id. |
+| `read_clipboard_text` | Read current Unicode text, length, raw/normalized SHA-256 digests, and direct clipboard format names. |
+| `write_clipboard_text` | Replace all current formats with Unicode text and optionally return a session-local backup id after materializing every direct format. |
+| `restore_clipboard` | Restore and verify the formats/text captured by one backup id, then consume that id. |
 | `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
 | `click` | Click window-relative, screen, or screenshot coordinates with left, right, middle, X1, or X2 button. |
 | `mouse_down` | Move to a point, hold one of five mouse buttons across later actions, and track it for guaranteed cleanup. |
@@ -39,7 +42,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `drag` | Perform a self-contained left/right/middle/X1/X2 drag between physical points with configurable duration. |
 | `set_window_state` | Minimize, maximize, or restore one window and verify native state. |
 | `activate_window` | Restore and foreground one exact window. |
-| `end_session` | Release tracked mouse buttons and keys, clear element caches, and end the logical control session. |
+| `end_session` | Release tracked mouse buttons and keys, discard unused clipboard backup ids, clear element caches, and end the logical control session. |
 
 Controls include `parentId`, `depth`, `childCount`, `value`, `isReadOnly`, `isSelected`, `toggleState`, `expandCollapseState`, and horizontal/vertical scroll percentages when their UIA patterns are supported. Window observations also return `focusedControlId`, `documentText`, `selectedText`, and `selectedControlIds`. An `observationId` remains available for the latest 16 inspected/snapshotted states in a session; `observe_changes` compares these semantic states as well as identity, layout, focus, and patterns.
 
@@ -52,6 +55,8 @@ Visual tools reject minimized windows because WGC/PrintWindow output is not depe
 An exact `window_id` is resolved directly as an HWND even when that window is temporarily hidden or untitled. If an app destroys and recreates the HWND, the cached id follows it only when the same process id, native class, and non-empty title identify one unique replacement. Otherwise the broker returns an explicit stale-id error; call `list_windows`/`wait_for_window` and select the replacement rather than guessing.
 
 `find_image` defaults to `scale_min=scale_max=1.0`. For known DPI or zoom variation, scales are bounded to 0.25-4.0 with a 0.01-1.0 step and at most 25 evaluated sizes; 1.0 is included when it lies inside the range. Results are ranked and overlap-suppressed across scales. Use a narrow range because runtime grows with every evaluated size, and use `snapshot`/model vision for novel or rotated targets.
+
+`write_clipboard_text` defaults to `preserve_previous=true`. It materializes every direct clipboard format before mutation and fails without changing the clipboard if one cannot be backed up safely. Keep the returned `backup_id` and call `restore_clipboard` in cleanup after the paste; the restore tolerates Windows line-ending normalization, verifies the original format set and normalized text digest, and consumes the id. Backup ids belong to the current broker process and are discarded by `end_session`/shutdown without automatically changing the current clipboard. Use `preserve_previous=false` only for an intentional persistent clipboard update.
 
 For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be preempted, but an observation completed after `timeout_ms` is not reported as a successful match.
 

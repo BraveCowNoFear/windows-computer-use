@@ -109,10 +109,16 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - `move_pointer`, `click`, `mouse_down`, `mouse_up`, `scroll`, and `drag` can consume a desktop screenshot without a window selector or foreground activation. Explicit `coordinate_space=screen` also supports direct no-selector input; state-changing desktop actions re-capture the desktop and return `desktop-screenshot-reobserve` plus a fresh id.
 - Desktop/window selector conflicts fail before input. Eighteen unit cases gate the desktop visual schemas. Three consecutive full E2E runs on the current 2560x1600 150%-scaled desktop prove full-screen capture bounds, stale/conflict rejection, full-desktop OCR grounding of `SAVE`, screenshot-bound pointer/click/drag, direct-screen middle-button down/up, and clean joint input teardown.
 
+### v0.15.0 — reversible native clipboard access
+
+- Added `read_clipboard_text`, `write_clipboard_text`, and `restore_clipboard`, making 33 MCP tools. The Windows OLE clipboard backend runs every operation on a dedicated STA thread with native contention retries and shares the existing UI lock.
+- Preserved writes materialize every direct clipboard format before mutation and fail closed when a value cannot be cloned safely. The backup token stays only in the owning Broker session; restore republishes all formats, waits for Windows delayed rendering, verifies the format set plus normalized text digest, then consumes the token.
+- Nineteen unit tests gate the schemas and read-only annotations. Three consecutive real E2E runs write a random Unicode-safe marker, read it back, focus the semantic edit, prove system `Ctrl+V`, restore the pre-test Chromium text/HTML/custom-format clipboard without exposing its content, and confirm `end_session` has no orphaned backup token.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.
-- Native Unicode typing avoids clipboard mutation, but the broker does not yet expose explicit clipboard read/write or bulk-paste tools.
+- Native Unicode typing remains the non-mutating default; explicit clipboard tools now cover real paste workflows but callers must restore a preserved backup before `end_session` if the new clipboard content is not intentional.
 - Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 

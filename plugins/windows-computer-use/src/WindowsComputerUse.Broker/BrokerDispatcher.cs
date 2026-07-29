@@ -13,6 +13,7 @@ public sealed class BrokerDispatcher : IDisposable
     private readonly DisplayService _displays = new();
     private readonly OcrService _ocr = new();
     private readonly ImageMatcherService _imageMatcher = new();
+    private readonly ClipboardService _clipboard = new();
     private readonly UiaService _uia;
     private readonly AuditLogger _audit = new();
     private readonly string _sessionId = $"session-{Guid.NewGuid():N}";
@@ -34,7 +35,7 @@ public sealed class BrokerDispatcher : IDisposable
                     ok = true,
                     session_id = _sessionId,
                     access_mode = "full-control",
-                    backends = new[] { "uia3", "win32", "sendinput", "windows-graphics-capture", "print-window", "windows-media-ocr", "local-template-matching" },
+                    backends = new[] { "uia3", "win32", "sendinput", "windows-graphics-capture", "print-window", "windows-media-ocr", "local-template-matching", "windows-ole-clipboard" },
                     dpi_awareness = "per-monitor-v2"
                 },
                 "list_windows" => new
@@ -59,6 +60,9 @@ public sealed class BrokerDispatcher : IDisposable
                 "ocr" => await OcrAsync(args, cancellationToken),
                 "find_text" => await FindTextAsync(args, cancellationToken),
                 "find_image" => FindImage(args),
+                "read_clipboard_text" => _clipboard.ReadText(),
+                "write_clipboard_text" => WriteClipboardText(args),
+                "restore_clipboard" => RestoreClipboard(args),
                 "move_pointer" => MovePointer(args),
                 "click" => Click(args),
                 "mouse_down" => MouseDown(args),
@@ -88,11 +92,12 @@ public sealed class BrokerDispatcher : IDisposable
     {
         try { _input.ReleaseAllMouseButtons(); } catch { }
         try { _input.ReleaseAllKeys(); } catch { }
+        _clipboard.Dispose();
         _uia.Dispose();
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session";
 
     private object Launch(JsonElement args)
@@ -342,6 +347,18 @@ public sealed class BrokerDispatcher : IDisposable
             args.Double("scale_min", 1.0),
             args.Double("scale_max", 1.0),
             args.Double("scale_step", 0.1));
+    }
+
+    private object WriteClipboardText(JsonElement args)
+    {
+        var text = args.String("text") ?? throw new ArgumentException("text is required");
+        return _clipboard.WriteText(text, args.Bool("preserve_previous", true));
+    }
+
+    private object RestoreClipboard(JsonElement args)
+    {
+        var backupId = args.String("backup_id") ?? throw new ArgumentException("backup_id is required");
+        return _clipboard.Restore(backupId);
     }
 
     private object MovePointer(JsonElement args)
@@ -740,8 +757,9 @@ public sealed class BrokerDispatcher : IDisposable
         _windows.ClearSession();
         _screenshots.Clear();
         _observations.Clear();
+        var discardedClipboardBackups = _clipboard.ClearSession();
         if (errors.Count > 0) throw new AggregateException("One or more held inputs could not be released while ending the session.", errors);
-        return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow, released_keys = releasedKeys, released_buttons = releasedButtons };
+        return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow, released_keys = releasedKeys, released_buttons = releasedButtons, discarded_clipboard_backups = discardedClipboardBackups };
     }
 
     private static bool HasWindowSelector(JsonElement args) =>

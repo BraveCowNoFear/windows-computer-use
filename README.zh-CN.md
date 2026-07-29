@@ -17,12 +17,13 @@
 - 以 DWM 可见边界对齐 WGC，并显式支持 `window` / `screen` / `screenshot` 坐标空间，避免不可见缩放边框造成点击偏移。
 - 原生 `Windows.Media.Ocr` 行/词边界、带截图 ID 的新鲜 OCR，以及可直接衔接点击的 `find_text` 文本定位。
 - 本地 PNG/JPEG 模板匹配：受控的 0.25×–4× 多尺度搜索、粗到细采样颜色评分、跨尺度重叠抑制与新鲜截图绑定坐标，用于无文字图标和画布目标。
+- 原生 Windows OLE 剪贴板文字读写，以及覆盖全部可物化直接格式的会话内备份令牌，可在粘贴后完成验证式恢复。
 - 窗口 owner/root-owner 关系、用于瞬态弹窗的 `wait_for_window`，以及带验证的最小化/最大化/还原控制。
 - 状态条件等待代替盲目 sleep：除存在/可见/焦点外，还支持 Value 等值/包含、选中/未选中、Toggle、展开/折叠与只读/可编辑谓词；每次动作后自动重新观测验证。
 - 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
-- 30 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
+- 33 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
 - 与 `desktop-control-for-windows` 共用全局 UI 锁协议。
-- 真实 WinForms 端到端测试：MCP 握手、UIA 发现、丰富状态差异、选中文本、二级动作、中文输入、语义 Invoke、状态等待、窗口/桌面截图、桌面 OCR 到点击、跨动作键鼠手势与清理。
+- 真实 WinForms 端到端测试：MCP 握手、UIA 发现、丰富状态差异、选中文本、二级动作、中文输入、可恢复的原生剪贴板粘贴、语义 Invoke、状态等待、窗口/桌面截图、桌面 OCR 到点击、跨动作键鼠手势与清理。
 
 本地视觉语言模型仍未实现；已知的无文字目标可用受控多尺度模板匹配跨越 DPI/缩放差异，陌生视觉和旋转目标仍由 OCR 与模型侧图像推理理解。扩展兼容门禁已覆盖 Word、Excel、VS Code/Electron、微信和 SolidWorks；真正的多屏/混合 DPI 与高完整性边界仍需对应硬件和进程状态。
 
@@ -54,7 +55,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、状态条件等待、键盘保持/隐式修饰键、WGC、OCR 与图像模板定位、快照新鲜度和过期坐标拒绝；任一门禁失败都会返回非零退出码。
+`test.ps1` 会先校验 Codex 清单、marketplace 路径、MCP 启动器、skill/资源和全部 PowerShell 语法，再还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证层级 UIA/状态差异、Value 与选中文本、语义二级动作、状态条件等待、键盘保持/隐式修饰键、可恢复的真实 `Ctrl+V` 剪贴板往返、WGC、OCR 与图像模板定位、快照新鲜度和过期坐标拒绝；任一门禁失败都会返回非零退出码。
 
 构建后还可运行 `scripts/real-app-smoke.ps1` 做非破坏性真实应用兼容测试：它会打开隔离的记事本、资源管理器和设置窗口，完成 UIA/截图/OCR，并且只关闭测试前不存在的窗口 ID。
 
@@ -76,9 +77,11 @@ codex plugin marketplace add .
 
 ## MCP 工具面
 
-30 个工具分别是：`list_windows`、`display_info`、`pointer_position`、`launch_app`、`wait_for_window`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`perform_secondary_action`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`find_text`、`find_image`、`move_pointer`、`click`、`mouse_down`、`mouse_up`、`press_key`、`key_down`、`key_up`、`type_text`、`scroll`、`drag`、`set_window_state`、`activate_window`、`end_session`。
+33 个工具分别是：`list_windows`、`display_info`、`pointer_position`、`launch_app`、`wait_for_window`、`inspect_window`、`observe_changes`、`find_controls`、`invoke`、`perform_secondary_action`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`find_text`、`find_image`、`read_clipboard_text`、`write_clipboard_text`、`restore_clipboard`、`move_pointer`、`click`、`mouse_down`、`mouse_up`、`press_key`、`key_down`、`key_up`、`type_text`、`scroll`、`drag`、`set_window_state`、`activate_window`、`end_session`。
 
 窗口应使用 `list_windows` 返回的精确 ID；即使窗口暂时隐藏或无标题，Broker 也会直接按 HWND 恢复描述。如果应用重建 HWND，只有进程 ID、原生窗口类和非空标题仍一致且替代窗口唯一时，旧 ID 才会自动跟随；否则拒绝模糊匹配并要求重新选择。瞬态弹窗用 `wait_for_window` 配合 `owner_window_id` 定位。操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID 和当前状态字段，状态切换后可把旧 `observation_id` 交给 `observe_changes`；需要比主 Invoke 更明确的 UIA 动作时使用 `perform_secondary_action`。确需坐标时，文字用 `find_text`、已知本地图像用可选受控尺度范围的 `find_image`、陌生画面用 `snapshot`，再把返回的 `screenshot_id` 与 `coordinate_space: "screenshot"` 交给坐标动作。`capture`、`ocr`、`find_text`、`find_image` 均支持 `desktop: true`；完整虚拟桌面截图 ID 可直接驱动移动、点击、滚动和拖拽，无需选择或激活窗口，显式 `coordinate_space: "screen"` 也可直接操作整桌面。语义/输入动作会让旧截图失效；目标移动/缩放、显示拓扑变化或超过 `max_age_ms` 后 Broker 会拒绝盲点。窗口级视觉观察前应先还原最小化窗口。旧的选窗调用仍默认使用相对窗口的物理像素。
+
+只为粘贴临时借用剪贴板时，应以默认的 `preserve_previous=true` 调用 `write_clipboard_text`，完成粘贴后在类似 `finally` 的清理阶段用返回令牌调用 `restore_clipboard`，并确保恢复发生在 `end_session` 之前。备份仅存在于当前 Broker 会话；遇到无法安全物化的直接格式时，工具会在改写剪贴板之前失败。只有任务本身要求保留新剪贴板内容时才使用 `preserve_previous=false`。
 
 ## 仓库结构
 

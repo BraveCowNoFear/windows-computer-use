@@ -38,6 +38,11 @@ public static class ToolCatalog
             WindowProps(("desktop", S("boolean", "Search the full virtual desktop instead of one window.")), ("text", S("string", "OCR text to locate.")), ("match", Enum("exact", "contains")), ("case_sensitive", S("boolean", "Use ordinal case-sensitive matching.")), ("language", S("string", "Optional BCP-47 language tag.")), ("limit", S("integer", "Maximum matches, default 50."))), ["text"]),
         Tool("find_image", "Capture one window or the full virtual desktop and locate a local PNG/JPEG template across a bounded optional scale range, returning actionable screenshot coordinates.",
             WindowProps(("desktop", S("boolean", "Search the full virtual desktop instead of one window.")), ("template_path", S("string", "Local image template path.")), ("threshold", S("number", "Color-similarity threshold from 0.5 to 1.0, default 0.92.")), ("max_results", S("integer", "Maximum non-overlapping matches, default 10.")), ("scale_min", S("number", "Minimum template scale from 0.25 to 4.0, default 1.0.")), ("scale_max", S("number", "Maximum template scale from 0.25 to 4.0, default 1.0.")), ("scale_step", S("number", "Scale increment from 0.01 to 1.0; at most 25 scales, default 0.1."))), ["template_path"]),
+        Tool("read_clipboard_text", "Read Unicode text and direct data-format metadata from the current Windows clipboard.", Props()),
+        Tool("write_clipboard_text", "Replace the Windows clipboard with Unicode text, verify the write, and optionally retain a session-local full-format backup token for verified restoration.",
+            Props(("text", S("string", "Unicode text to place on the clipboard.")), ("preserve_previous", S("boolean", "Safely materialize all direct clipboard formats and return a restore token before replacing them; default true."))), ["text"]),
+        Tool("restore_clipboard", "Restore every safely materialized clipboard format captured by write_clipboard_text and consume its session-local backup token.",
+            Props(("backup_id", S("string", "Backup token returned by write_clipboard_text."))), ["backup_id"]),
         Tool("move_pointer", "Move or smoothly hover the mouse pointer without clicking or activating a target window. Screen coordinates need no window selector.",
             WindowProps(("x", S("integer", "Target X coordinate.")), ("y", S("integer", "Target Y coordinate.")), ("coordinate_space", Enum("window", "screen", "screenshot")), ("screenshot_id", S("string", "Fresh screenshot id; required for screenshot coordinates and can identify its window.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms.")), ("duration_ms", S("integer", "Smooth movement duration from 0 to 10000 ms."))), ["x", "y"]),
         Tool("click", "Click physical pixels in a selected window, directly in screen space, or through a fresh virtual-desktop screenshot id. Coordinates are window-relative when a window is selected.",
@@ -68,7 +73,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

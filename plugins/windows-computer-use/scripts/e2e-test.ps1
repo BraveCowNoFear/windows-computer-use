@@ -17,6 +17,8 @@ $visualSourcePath = Join-Path $env:TEMP ("windows-computer-use-visual-source-{0}
 $templatePath = Join-Path $env:TEMP ("windows-computer-use-template-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $scaledTemplatePath = Join-Path $env:TEMP ("windows-computer-use-scaled-template-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $nextId = 0
+$clipboardBackupId = $null
+$clipboardRoundtrip = $false
 
 function Invoke-McpRequest {
     param([string]$Method, [hashtable]$Params = @{})
@@ -69,7 +71,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 30) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -ne 33) { throw "Expected 33 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -112,6 +114,42 @@ try {
     if ($textSelectionState.selectedText -ne $testText -or -not $textSelectionState.documentText) {
         throw "Focused TextPattern state was not exposed: $($textSelectionState | ConvertTo-Json -Depth 4 -Compress)"
     }
+
+    $script:stage = 'clipboard-roundtrip'
+    $originalClipboard = Invoke-WcuTool -Name 'read_clipboard_text'
+    $clipboardText = "WCU clipboard $([guid]::NewGuid().ToString('N'))"
+    $clipboardWrite = Invoke-WcuTool -Name 'write_clipboard_text' -Arguments @{ text = $clipboardText; preserve_previous = $true }
+    $clipboardBackupId = [string]$clipboardWrite.backup_id
+    if (-not $clipboardWrite.ok -or -not $clipboardBackupId -or $clipboardWrite.sha256 -eq $null) {
+        throw 'Native clipboard write did not return a verified backup token and content digest.'
+    }
+    try {
+        $clipboardRead = Invoke-WcuTool -Name 'read_clipboard_text'
+        if (-not $clipboardRead.contains_text -or $clipboardRead.text -ne $clipboardText -or $clipboardRead.sha256 -ne $clipboardWrite.sha256) {
+            throw 'Native clipboard read did not reproduce the written Unicode text.'
+        }
+        Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = '' } | Out-Null
+        Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
+        Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+v' } | Out-Null
+        $clipboardPasteWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $clipboardText; timeout_ms = 2000 }
+        if (-not $clipboardPasteWait.matched) { throw 'Real Ctrl+V did not paste the native clipboard text into the semantic edit control.' }
+    } finally {
+        if ($clipboardBackupId) {
+            $clipboardRestore = Invoke-WcuTool -Name 'restore_clipboard' -Arguments @{ backup_id = $clipboardBackupId }
+            $clipboardBackupId = $null
+            $missingFormats = @($originalClipboard.formats | Where-Object { @($clipboardRestore.formats) -notcontains $_ })
+            if (-not $clipboardRestore.ok -or
+                $clipboardRestore.contains_text -ne $originalClipboard.contains_text -or
+                $clipboardRestore.normalized_sha256 -ne $originalClipboard.normalized_sha256 -or
+                $missingFormats.Count -ne 0) {
+                throw 'Clipboard restoration did not reproduce the original text state and direct formats.'
+            }
+        }
+    }
+    $clipboardRoundtrip = $true
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
+    Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
+    Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'ctrl+a' } | Out-Null
 
     $script:stage = 'keyboard-state'
     $heldShift = Invoke-WcuTool -Name 'key_down' -Arguments @{ window_id = $windowId; key = 'shift' }
@@ -458,7 +496,7 @@ try {
     $heldMouseForCleanup = Invoke-WcuTool -Name 'mouse_down' -Arguments @{ window_id = $windowId; x = $cleanupMouseX; y = $cleanupMouseY; coordinate_space = 'screen'; button = 'right' }
     if (@($heldMouseForCleanup.data.held_buttons) -notcontains 'right') { throw 'Could not stage a held mouse button for end_session cleanup.' }
     $ended = Invoke-WcuTool -Name 'end_session'
-    if (-not $ended.ok -or $ended.released_keys -ne 1 -or $ended.released_buttons -ne 1) { throw 'Session did not release its remaining held key and mouse button cleanly.' }
+    if (-not $ended.ok -or $ended.released_keys -ne 1 -or $ended.released_buttons -ne 1 -or $ended.discarded_clipboard_backups -ne 0) { throw 'Session did not release held input or clear clipboard backup state cleanly.' }
 
     [ordered]@{
         ok = $true
@@ -519,12 +557,22 @@ try {
         held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched
         configurable_button_drag = $rightDragWait.matched
         direct_screen_mouse_roundtrip = $directMouseDownWait.matched -and $directMouseUpWait.matched
+        clipboard_roundtrip = $clipboardRoundtrip
         end_session_released_keys = $ended.released_keys
         end_session_released_buttons = $ended.released_buttons
+        end_session_discarded_clipboard_backups = $ended.discarded_clipboard_backups
         recreated_window_recovered = $true
         window_handle_changed = $windowHandleChanged
     } | ConvertTo-Json -Depth 6
 } finally {
+    if ($clipboardBackupId -and $null -ne $mcp -and -not $mcp.HasExited) {
+        try {
+            Invoke-WcuTool -Name 'restore_clipboard' -Arguments @{ backup_id = $clipboardBackupId } | Out-Null
+            $clipboardBackupId = $null
+        } catch {
+            Write-Warning 'The E2E fallback could not restore the clipboard backup before MCP shutdown.'
+        }
+    }
     if ($null -ne $mcp) {
         try { $mcp.StandardInput.Close() } catch {}
         if (-not $mcp.WaitForExit(2000)) { try { $mcp.Kill() } catch {} }

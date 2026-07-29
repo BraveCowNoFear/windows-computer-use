@@ -10,7 +10,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(30, ToolCatalog.All.Count);
+        Assert.Equal(33, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -29,7 +29,29 @@ public sealed class ProtocolTests
         Assert.Contains("mouse_up", json);
         Assert.Contains("key_down", json);
         Assert.Contains("key_up", json);
+        Assert.Contains("read_clipboard_text", json);
+        Assert.Contains("write_clipboard_text", json);
+        Assert.Contains("restore_clipboard", json);
         Assert.Contains("end_session", json);
+    }
+
+    [Fact]
+    public void ClipboardTools_AdvertiseReversibleNativeTextAccess()
+    {
+        var read = Assert.Single(ToolCatalog.All, tool => tool.Name == "read_clipboard_text");
+        var readAnnotations = JsonSerializer.SerializeToElement(read.Annotations, ProtocolJson.Options);
+        Assert.True(readAnnotations.GetProperty("readOnlyHint").GetBoolean());
+
+        var write = Assert.Single(ToolCatalog.All, tool => tool.Name == "write_clipboard_text");
+        var writeSchema = JsonSerializer.SerializeToElement(write.InputSchema, ProtocolJson.Options);
+        Assert.True(writeSchema.GetProperty("properties").TryGetProperty("preserve_previous", out _));
+        Assert.Contains("text", writeSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
+        var writeAnnotations = JsonSerializer.SerializeToElement(write.Annotations, ProtocolJson.Options);
+        Assert.False(writeAnnotations.GetProperty("readOnlyHint").GetBoolean());
+
+        var restore = Assert.Single(ToolCatalog.All, tool => tool.Name == "restore_clipboard");
+        var restoreSchema = JsonSerializer.SerializeToElement(restore.InputSchema, ProtocolJson.Options);
+        Assert.Contains("backup_id", restoreSchema.GetProperty("required").EnumerateArray().Select(item => item.GetString()));
     }
 
     [Fact]

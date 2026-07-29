@@ -24,6 +24,10 @@ If a held key or mouse button outlives the intended gesture, call `key_up` or `m
 
 Capture the virtual desktop again. Desktop screenshot ids are invalidated after input and rejected when they expire or when a monitor is connected, disconnected, repositioned, or changes resolution. Use `coordinate_space=screenshot` without a window selector for a bound desktop action. Because mouse-down invalidates its source image, finish a cross-action hold with explicit `coordinate_space=screen` coordinates.
 
+## Clipboard write or restore failed
+
+If `write_clipboard_text` cannot materialize an existing direct format, it fails before mutation. Use direct `enter_text`/`type_text`, or explicitly choose `preserve_previous=false` only when replacing the user's clipboard is the intended result. If a later paste action fails, still call `restore_clipboard` with the saved backup id in cleanup. Do not call `end_session` first because backup ids are session-local and unused ids are discarded at session end.
+
 ## UI lock busy
 
 Wait for the other controller to finish. The broker intentionally uses the same lock file as the legacy pixel skill so two agents cannot interleave physical input. Expired locks are removed automatically.

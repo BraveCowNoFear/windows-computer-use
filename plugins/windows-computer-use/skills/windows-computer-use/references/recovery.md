@@ -8,7 +8,7 @@ If the broker says a `window_id` itself is stale, Windows has destroyed that HWN
 
 ## Custom canvas or empty UIA tree
 
-Use `find_text` when the target has readable text, `find_image` when you have an exact-scale local PNG/JPEG template, or snapshot the selected window for model-side vision. Use image-relative coordinates with `coordinate_space=screenshot` and pass the same `screenshot_id`. If template matching fails after a DPI/zoom change, capture a template at the current scale instead of lowering the threshold until false matches appear. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.
+Use `find_text` when the target has readable text, `find_image` when you have a known local PNG/JPEG template, or snapshot the selected window for model-side vision. Use image-relative coordinates with `coordinate_space=screenshot` and pass the same `screenshot_id`. If matching fails after a DPI/zoom change, try the narrowest plausible bounded scale range; capture a current-scale template rather than lowering the threshold until false matches appear. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.
 
 ## Blank window capture
 

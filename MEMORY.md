@@ -82,7 +82,7 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Added `find_image`, making 26 MCP tools. It fresh-captures one window and matches an exact-scale local PNG/JPEG using bounded coarse-to-fine sampled BGRA color distance, alpha weighting, top-candidate queues, and overlap suppression.
 - Results contain score, screenshot-relative bounds/center, physical screen bounds, fresh screenshot id/time/hash, and `coordinate_space=screenshot`; they feed directly into the existing stale-checked pointer/click/scroll/drag path.
 - Unit coverage builds a synthetic unique-color target and proves exact screenshot/screen coordinate recovery. Three consecutive real E2E runs crop a button from WGC, re-find it in a new WGC frame at score 1.0 in 78 ms without OCR, click through the returned screenshot id, and verify the changed UIA state.
-- Matching is intentionally exact-scale rather than falsely claiming scale/rotation-invariant vision. Novel image understanding still uses model-side vision; current local fallbacks are UIA -> OCR -> known template -> screenshot/model -> physical pixels.
+- At this milestone matching was intentionally exact-scale rather than falsely claiming scale/rotation-invariant vision; v0.13 later added bounded multi-scale search. Novel image understanding still uses model-side vision; current local fallbacks are UIA -> OCR -> known template -> screenshot/model -> physical pixels.
 
 ### v0.11.0 — native keyboard state parity
 
@@ -97,9 +97,15 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - `click` now covers all five buttons. `drag` accepts a configurable button, rejects ambiguous reuse of an already-held button, and always releases its self-contained hold through a `finally` path. `end_session` and broker disposal release mouse buttons before keys, while cleanup attempts every held input even after an individual failure.
 - The deterministic WinForms fixture observes real MouseDown/MouseUp events. Fifteen unit cases cover tool/catalog and native button normalization; three consecutive full E2E runs prove left-button hold/move/release, right-button drag, handle recreation, and joint Ctrl+right-button session cleanup. A final system async-state probe confirms five mouse buttons plus Shift/Ctrl/Alt are all up and no project process remains.
 
+### v0.13.0 — bounded multi-scale template grounding
+
+- `find_image` remains exact 1.0x by default but now accepts `scale_min`, `scale_max`, and `scale_step`. The range is bounded to 0.25x-4x and at most 25 evaluated sizes; 1.0x is included when inside the requested range.
+- Templates use high-quality resampling, the existing sampled BGRA/SAD coarse-to-fine search at each size, and global score ordering plus cross-scale overlap suppression. Each match returns its scale and scaled image/screen bounds while retaining the fresh screenshot id.
+- Seventeen unit cases include an exact synthetic 1.5x recovery. Three consecutive real WGC E2E runs shrink a real button template to 80%, recover it at 1.25x in 406-438 ms, and successfully click through the returned screenshot coordinates; exact-scale matching remains score 1.0 in 109-125 ms.
+
 ## Current boundaries and next work
 
-- Windows OCR provides line/word grounding and exact-scale local template matching covers known images. Novel non-text interpretation, scale/rotation variation, and ambiguous scenes still depend on the calling model.
+- Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.
 - Native Unicode typing avoids clipboard mutation, but the broker does not yet expose explicit clipboard read/write or bulk-paste tools.
 - Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.

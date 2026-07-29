@@ -332,7 +332,14 @@ public sealed class BrokerDispatcher : IDisposable
         var templatePath = args.String("template_path") ?? throw new ArgumentException("template_path is required");
         var window = _windows.Resolve(args);
         var capture = RememberCapture(window, _capture.Capture(window));
-        return _imageMatcher.Find(templatePath, capture, args.Double("threshold", 0.92), args.Int("max_results", 10));
+        return _imageMatcher.Find(
+            templatePath,
+            capture,
+            args.Double("threshold", 0.92),
+            args.Int("max_results", 10),
+            args.Double("scale_min", 1.0),
+            args.Double("scale_max", 1.0),
+            args.Double("scale_step", 0.1));
     }
 
     private object MovePointer(JsonElement args)

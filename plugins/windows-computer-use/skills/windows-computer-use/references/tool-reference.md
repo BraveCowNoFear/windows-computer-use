@@ -26,7 +26,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `snapshot` | Atomically return UIA state plus a fresh image with screenshot id, timestamp, and SHA-256. |
 | `ocr` | Recognize an existing image or fresh capture with Windows.Media.Ocr. |
 | `find_text` | Fresh-capture a window and return matching OCR line/word bounds, centers, and screenshot id. |
-| `find_image` | Fresh-capture a window and locate an exact-scale local PNG/JPEG template, returning scored screenshot/screen bounds, centers, and screenshot id. |
+| `find_image` | Fresh-capture a window and locate a local PNG/JPEG template at exact scale by default or across a bounded scale range, returning score, matched scale, screenshot/screen bounds, center, and screenshot id. |
 | `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
 | `click` | Click window-relative, screen, or screenshot coordinates with left, right, middle, X1, or X2 button. |
 | `mouse_down` | Move to a point, hold one of five mouse buttons across later actions, and track it for guaranteed cleanup. |
@@ -50,6 +50,8 @@ State-changing tools return `backend` and `verification`. `uia3-reobserve` means
 Visual tools reject minimized windows because WGC/PrintWindow output is not dependable in that state. Call `set_window_state` with `restore`, wait for the verified result, and observe again. Use `ownerWindowId`/`rootOwnerWindowId` from `list_windows` or `wait_for_window` to keep transient dialogs associated with the intended main window.
 
 An exact `window_id` is resolved directly as an HWND even when that window is temporarily hidden or untitled. If an app destroys and recreates the HWND, the cached id follows it only when the same process id, native class, and non-empty title identify one unique replacement. Otherwise the broker returns an explicit stale-id error; call `list_windows`/`wait_for_window` and select the replacement rather than guessing.
+
+`find_image` defaults to `scale_min=scale_max=1.0`. For known DPI or zoom variation, scales are bounded to 0.25-4.0 with a 0.01-1.0 step and at most 25 evaluated sizes; 1.0 is included when it lies inside the range. Results are ranked and overlap-suppressed across scales. Use a narrow range because runtime grows with every evaluated size, and use `snapshot`/model vision for novel or rotated targets.
 
 For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be preempted, but an observation completed after `timeout_ms` is not reported as a successful match.
 

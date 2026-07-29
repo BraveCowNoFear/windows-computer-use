@@ -50,6 +50,20 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void FindImage_AdvertisesBoundedMultiScaleSearchAsReadOnly()
+    {
+        var findImage = Assert.Single(ToolCatalog.All, tool => tool.Name == "find_image");
+        var schema = JsonSerializer.SerializeToElement(findImage.InputSchema, ProtocolJson.Options);
+        var properties = schema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("scale_min", out _));
+        Assert.True(properties.TryGetProperty("scale_max", out _));
+        Assert.True(properties.TryGetProperty("scale_step", out _));
+
+        var annotations = JsonSerializer.SerializeToElement(findImage.Annotations, ProtocolJson.Options);
+        Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
+    [Fact]
     public void BrokerMessage_RoundTripsUnicodeAndArguments()
     {
         var request = new BrokerRequest("42", "enter_text", JsonSerializer.SerializeToElement(new { text = "hello-\u4f60\u597d" }, ProtocolJson.Options));

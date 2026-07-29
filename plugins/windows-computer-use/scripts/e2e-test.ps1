@@ -15,6 +15,7 @@ $mcp = $null
 $capturePath = Join-Path $env:TEMP ("windows-computer-use-e2e-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $visualSourcePath = Join-Path $env:TEMP ("windows-computer-use-visual-source-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $templatePath = Join-Path $env:TEMP ("windows-computer-use-template-{0}.png" -f [guid]::NewGuid().ToString('N'))
+$scaledTemplatePath = Join-Path $env:TEMP ("windows-computer-use-scaled-template-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $nextId = 0
 
 function Invoke-McpRequest {
@@ -284,12 +285,26 @@ try {
     Add-Type -AssemblyName System.Drawing
     $sourceBitmap = $null
     $templateBitmap = $null
+    $scaledTemplateBitmap = $null
+    $scaledTemplateGraphics = $null
     try {
         $sourceBitmap = [System.Drawing.Bitmap]::FromFile($visualSourcePath)
         $cropRectangle = [System.Drawing.Rectangle]::new($cropX, $cropY, $cropWidth, $cropHeight)
         $templateBitmap = $sourceBitmap.Clone($cropRectangle, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $templateBitmap.Save($templatePath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $scaledWidth = [Math]::Max(2, [int][Math]::Round($cropWidth * 0.8))
+        $scaledHeight = [Math]::Max(2, [int][Math]::Round($cropHeight * 0.8))
+        $scaledTemplateBitmap = [System.Drawing.Bitmap]::new($scaledWidth, $scaledHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $scaledTemplateGraphics = [System.Drawing.Graphics]::FromImage($scaledTemplateBitmap)
+        $scaledTemplateGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $scaledTemplateGraphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $scaledTemplateGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $scaledTemplateGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $scaledTemplateGraphics.DrawImage($templateBitmap, [System.Drawing.Rectangle]::new(0, 0, $scaledWidth, $scaledHeight), 0, 0, $templateBitmap.Width, $templateBitmap.Height, [System.Drawing.GraphicsUnit]::Pixel)
+        $scaledTemplateBitmap.Save($scaledTemplatePath, [System.Drawing.Imaging.ImageFormat]::Png)
     } finally {
+        if ($null -ne $scaledTemplateGraphics) { $scaledTemplateGraphics.Dispose() }
+        if ($null -ne $scaledTemplateBitmap) { $scaledTemplateBitmap.Dispose() }
         if ($null -ne $templateBitmap) { $templateBitmap.Dispose() }
         if ($null -ne $sourceBitmap) { $sourceBitmap.Dispose() }
     }
@@ -301,7 +316,15 @@ try {
     if ($imageTarget.count -lt 1 -or $imageMatches.Count -lt 1 -or $imageMatches[0].score -lt 0.97 -or $imageTarget.elapsed_ms -gt 2000 -or -not $imageTarget.screenshot_id) {
         throw "Local image template grounding did not resolve the button: $($imageTarget | ConvertTo-Json -Depth 8 -Compress)"
     }
-    $imageClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = [int]$imageMatches[0].center.x; y = [int]$imageMatches[0].center.y; coordinate_space = 'screenshot'; screenshot_id = $imageTarget.screenshot_id }
+    $scaledImageTarget = Invoke-WcuTool -Name 'find_image' -Arguments @{ window_id = $windowId; template_path = $scaledTemplatePath; threshold = 0.90; max_results = 5; scale_min = 1.15; scale_max = 1.35; scale_step = 0.025 }
+    $scaledImageMatches = @($scaledImageTarget.matches | Where-Object {
+        $_.screen_bounds.x -lt $currentButton.controls[0].bounds.right -and $_.screen_bounds.right -gt $currentButton.controls[0].bounds.x -and
+        $_.screen_bounds.y -lt $currentButton.controls[0].bounds.bottom -and $_.screen_bounds.bottom -gt $currentButton.controls[0].bounds.y
+    })
+    if ($scaledImageTarget.backend -ne 'local-template-multiscale-sampled-sad' -or $scaledImageTarget.count -lt 1 -or $scaledImageMatches.Count -lt 1 -or $scaledImageMatches[0].score -lt 0.90 -or $scaledImageMatches[0].scale -lt 1.15 -or $scaledImageMatches[0].scale -gt 1.35 -or $scaledImageTarget.elapsed_ms -gt 5000) {
+        throw "Multi-scale image grounding did not recover the resized real-window template: $($scaledImageTarget | ConvertTo-Json -Depth 8 -Compress)"
+    }
+    $imageClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = [int]$scaledImageMatches[0].center.x; y = [int]$scaledImageMatches[0].center.y; coordinate_space = 'screenshot'; screenshot_id = $scaledImageTarget.screenshot_id }
     if (-not $imageClick.ok) { throw 'Image-template screenshot-bound click failed.' }
     $imageExpected = 'Saved: ' + $imageText
     $imageWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $imageExpected; state = 'exists'; timeout_ms = 5000 }
@@ -419,6 +442,8 @@ try {
         image_template_grounding = $imageTarget.count
         image_match_score = $imageMatches[0].score
         image_match_ms = $imageTarget.elapsed_ms
+        multiscale_image_match = $scaledImageMatches[0].scale
+        multiscale_image_match_ms = $scaledImageTarget.elapsed_ms
         image_screenshot_space_mapping = $imageWait.matched
         held_key_roundtrip = $shiftDownWait.matched -and $shiftUpWait.matched
         implied_shift_repeat = $uppercaseWait.matched
@@ -453,5 +478,8 @@ try {
     }
     if (-not $KeepArtifacts -and (Test-Path -LiteralPath $templatePath)) {
         Remove-Item -LiteralPath $templatePath -Force
+    }
+    if (-not $KeepArtifacts -and (Test-Path -LiteralPath $scaledTemplatePath)) {
+        Remove-Item -LiteralPath $scaledTemplatePath -Force
     }
 }

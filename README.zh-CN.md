@@ -82,6 +82,8 @@ codex plugin marketplace add .
 
 窗口应使用 `list_windows` 返回的精确 ID；即使窗口暂时隐藏或无标题，Broker 也会直接按 HWND 恢复描述。如果应用重建 HWND，只有进程 ID、原生窗口类和非空标题仍一致且替代窗口唯一时，旧 ID 才会自动跟随；否则拒绝模糊匹配并要求重新选择。瞬态弹窗用 `wait_for_window` 配合 `owner_window_id` 定位。操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID 和当前状态字段，状态切换后可把旧 `observation_id` 交给 `observe_changes`；需要比主 Invoke 更明确的 UIA 动作时使用 `perform_secondary_action`。确需坐标时，文字用 `find_text`、已知本地图像用可选受控尺度范围的 `find_image`、陌生画面用 `snapshot`，再把返回的 `screenshot_id` 与 `coordinate_space: "screenshot"` 交给坐标动作。`capture`、`ocr`、`find_text`、`find_image` 均支持 `desktop: true`；完整虚拟桌面截图 ID 可直接驱动移动、点击、滚动和拖拽，无需选择或激活窗口，显式 `coordinate_space: "screen"` 也可直接操作整桌面。语义/输入动作会让旧截图失效；目标移动/缩放、显示拓扑变化或超过 `max_age_ms` 后 Broker 会拒绝盲点。窗口级视觉观察前应先还原最小化窗口。旧的选窗调用仍默认使用相对窗口的物理像素。
 
+绑定截图的 `click`、`scroll` 和自包含 `drag` 会自动比较原始完整/区域像素与动作后画面。返回的 `data.visual_diff` 包含是否可比较、变化数量/比例、最大通道差、精确图像/屏幕总边界和最多 20 个局部区域。如果动作改变了来源几何，动作仍按成功返回，但 `comparable=false` 并给出前后边界，而不是把已执行的输入误报为失败。直接屏幕或未绑定截图的窗口动作没有可信前帧，因此不附加该摘要。
+
 没有可靠语义谓词时，把新鲜窗口或桌面 `screenshot_id` 交给 `wait_for_visual_change`。它会持续捕获同一来源、校验窗口几何或显示拓扑、比较精确 PNG SHA-256，并在匹配或超时后都返回一张新的可操作截图。能用 `wait_for_ui` 时仍应优先使用它，因为动画、时钟、闪烁光标或桌面任意无关像素变化都可能满足精确画面变化。
 
 变化开始后，可用 `wait_for_visual_stable` 要求新捕获画面连续 `stable_ms` 保持同一精确 PNG 哈希；任一样本变化都会重新计时。超过 `timeout_ms` 仍不稳定时返回 `stable: false` 与最新截图。稳定时长只从调用后真实观测开始计算；时钟、光标、视频和桌面通知可能让整帧永远无法稳定。

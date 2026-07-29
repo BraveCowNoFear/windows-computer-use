@@ -50,7 +50,7 @@ State-changing actions run as:
 4. Resolve the semantic control or physical point. Coordinate actions may bind to a screenshot id; semantic/input mutations invalidate older screenshots, and moved, resized, unknown, or expired observations are rejected.
 5. Use the requested UIA3 Pattern first. Primary `invoke` may fall back to a center click; `perform_secondary_action` stays semantic and fails explicitly when its required pattern is unavailable.
 6. Wait for an explicit `wait_for_ui`, `wait_for_window`, pixel-change, or continuous visual-stability condition.
-7. Re-observe the control or window and return verification metadata. Pixel actions capture a post-action frame and return its id/hash for visual-difference inspection.
+7. Re-observe the control or window and return verification metadata. Screenshot-bound click/scroll/drag actions capture a post-action full frame, automatically crop it back to the original region when needed, and return an inline exact visual-diff summary plus the fresh full-frame id/hash. Geometry changes produce a non-comparable summary rather than failing an already-executed input.
 8. Release the shared lock.
 
 The broker never logs raw text or screenshots. Its local JSONL audit stores timestamp, session, method, success, duration, and a SHA-256 hash of arguments.

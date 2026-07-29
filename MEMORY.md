@@ -208,6 +208,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Results include exact changed-pixel count/fraction, maximum channel delta, exact image/physical-screen union bounds, and four-neighbor connected tile regions. `channel_threshold` defaults to exact zero; tile size and maximum output regions are bounded, and omitted region count is explicit.
 - Thirty-seven unit tests cover protocol, identical frames, exact disjoint pixel counts/bounds, negative physical origins, region grouping, and inclusive channel-threshold boundaries. Real WGC E2E compares the delayed Toggle baseline/result 172x40 crops, localizes 396 changed pixels into one region on the development run, verifies physical-bound translation, and completes every prior gate.
 
+### v0.30.0 — inline visual verification for screenshot-bound actions
+
+- Screenshot-bound `click`, `scroll`, and self-contained `drag` now add `data.visual_diff` after their existing post-action capture. Full/desktop baselines compare directly; cropped/nested baselines automatically crop the post-action full frame back to the same private region before exact BGRA comparison.
+- Inline summaries include comparable/changed state, changed pixels/fraction, maximum channel delta, exact image/physical union bounds, and up to 20 localized regions. If source bounds changed, the completed input remains successful and returns `comparable=false` with geometry evidence instead of throwing; unbound/direct-screen actions have no trusted baseline.
+- Thirty-seven unit tests remain green. Real WGC E2E verifies region-bound window clicks, a full-desktop Save click with 2854 changed pixels on the development run, a no-op-capable desktop wheel action, desktop middle-button drag, and template-region click all return comparable summaries before completing every prior gate.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

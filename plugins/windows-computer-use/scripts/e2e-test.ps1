@@ -614,7 +614,8 @@ try {
     if (-not $staleRejected) { throw 'Stale screenshot coordinates were not rejected.' }
 
     $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = $pixelX; y = $pixelY; coordinate_space = 'screenshot'; screenshot_id = $ocrTarget.screenshot_id }
-    if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id) {
+    if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id -or
+        -not $pixelClick.data.visual_diff.comparable -or $pixelClick.data.visual_diff.changed_pixels -lt 0) {
         throw 'Screenshot-bound pixel action did not re-observe the window.'
     }
     $pixelExpected = 'Saved: ' + $pixelText
@@ -661,16 +662,21 @@ try {
         throw 'Virtual-desktop screenshot coordinates did not map to physical pointer coordinates.'
     }
     $desktopClick = Invoke-WcuTool -Name 'click' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopOcr.screenshot_id }
-    if (-not $desktopClick.ok -or $desktopClick.verification.strategy -ne 'desktop-screenshot-reobserve' -or -not $desktopClick.data.after_screenshot_id) {
+    if (-not $desktopClick.ok -or $desktopClick.verification.strategy -ne 'desktop-screenshot-reobserve' -or -not $desktopClick.data.after_screenshot_id -or
+        -not $desktopClick.data.visual_diff.comparable -or -not $desktopClick.data.visual_diff.changed -or $desktopClick.data.visual_diff.changed_pixels -lt 1) {
         throw 'Virtual-desktop screenshot-bound click did not re-observe the whole desktop.'
     }
     $desktopExpected = 'Saved: ' + $desktopText
     $desktopWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $desktopExpected; state = 'exists'; timeout_ms = 5000 }
     if (-not $desktopWait.matched) { throw 'Virtual-desktop screenshot-bound click did not invoke the visible target.' }
+    $desktopScroll = Invoke-WcuTool -Name 'scroll' -Arguments @{ x = $desktopButtonX; y = $desktopButtonY; coordinate_space = 'screenshot'; screenshot_id = $desktopClick.data.after_screenshot_id; vertical = -120; horizontal = 0 }
+    if (-not $desktopScroll.ok -or $desktopScroll.verification.strategy -ne 'desktop-screenshot-reobserve' -or -not $desktopScroll.data.after_screenshot_id -or -not $desktopScroll.data.visual_diff.comparable -or $desktopScroll.data.visual_diff.changed_pixels -lt 0) {
+        throw 'Virtual-desktop screenshot-bound scroll did not return an inline visual-diff summary.'
+    }
     $desktopMouseX = $mouseX - [int]$desktopMeta.bounds.x
     $desktopMouseY = $mouseY - [int]$desktopMeta.bounds.y
-    $desktopDrag = Invoke-WcuTool -Name 'drag' -Arguments @{ from_x = $desktopMouseX; from_y = $desktopMouseY; to_x = ($desktopMouseX + 16); to_y = $desktopMouseY; coordinate_space = 'screenshot'; screenshot_id = $desktopClick.data.after_screenshot_id; button = 'middle'; duration_ms = 80 }
-    if (-not $desktopDrag.ok -or $desktopDrag.verification.strategy -ne 'desktop-screenshot-reobserve' -or @($desktopDrag.data.held_buttons).Count -ne 0 -or -not $desktopDrag.data.after_screenshot_id) {
+    $desktopDrag = Invoke-WcuTool -Name 'drag' -Arguments @{ from_x = $desktopMouseX; from_y = $desktopMouseY; to_x = ($desktopMouseX + 16); to_y = $desktopMouseY; coordinate_space = 'screenshot'; screenshot_id = $desktopScroll.data.after_screenshot_id; button = 'middle'; duration_ms = 80 }
+    if (-not $desktopDrag.ok -or $desktopDrag.verification.strategy -ne 'desktop-screenshot-reobserve' -or @($desktopDrag.data.held_buttons).Count -ne 0 -or -not $desktopDrag.data.after_screenshot_id -or -not $desktopDrag.data.visual_diff.comparable -or $desktopDrag.data.visual_diff.changed_pixels -lt 0) {
         throw 'Virtual-desktop screenshot-bound drag did not finish and re-observe safely.'
     }
     $desktopDragPointer = Invoke-WcuTool -Name 'pointer_position'
@@ -748,7 +754,7 @@ try {
         throw "Multi-scale image grounding did not recover the resized real-window template: $($scaledImageTarget | ConvertTo-Json -Depth 8 -Compress)"
     }
     $imageClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = [int]$scaledImageMatches[0].center.x; y = [int]$scaledImageMatches[0].center.y; coordinate_space = 'screenshot'; screenshot_id = $scaledImageTarget.screenshot_id }
-    if (-not $imageClick.ok) { throw 'Image-template screenshot-bound click failed.' }
+    if (-not $imageClick.ok -or -not $imageClick.data.visual_diff.comparable -or $imageClick.data.visual_diff.changed_pixels -lt 0) { throw 'Image-template screenshot-bound click failed.' }
     $imageExpected = 'Saved: ' + $imageText
     $imageWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $imageExpected; state = 'exists'; timeout_ms = 5000 }
     if (-not $imageWait.matched) { throw 'Image-template coordinate mapping did not invoke the target button.' }
@@ -845,9 +851,12 @@ try {
         incremental_changes = @($diff.changes).Count
         semantic_screenshot_invalidation = $semanticInvalidatedScreenshot
         screenshot_bound_action = $pixelClick.verification.strategy
+        screenshot_bound_action_visual_diff = $pixelClick.data.visual_diff.comparable
         screenshot_space_mapping = $pixelWait.matched
         desktop_screenshot_bound_action = $desktopClick.verification.strategy
+        desktop_action_visual_diff_pixels = $desktopClick.data.visual_diff.changed_pixels
         desktop_screenshot_space_mapping = $desktopWait.matched
+        desktop_screenshot_bound_scroll = $desktopScroll.verification.strategy
         desktop_screenshot_bound_drag = $desktopDrag.verification.strategy
         desktop_stale_screenshot_rejected = $staleDesktopRejected
         desktop_selector_conflict_rejected = $desktopSelectorConflictRejected

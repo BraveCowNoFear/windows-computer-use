@@ -815,7 +815,8 @@ public sealed class BrokerDispatcher : IDisposable
                     y = desktopPoint.Y,
                     coordinate_space = "physical-screen-pixels",
                     after_screenshot_id = desktopAfterCapture.Id,
-                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256
+                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(desktopCapture, desktopAfterCapture)
                 });
         }
         if (IsDirectScreenAction(args))
@@ -855,7 +856,8 @@ public sealed class BrokerDispatcher : IDisposable
                 x = point.X,
                 y = point.Y,
                 after_screenshot_id = afterCapture.Id,
-                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256
+                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
             });
     }
 
@@ -1063,7 +1065,14 @@ public sealed class BrokerDispatcher : IDisposable
                 "scroll",
                 "sendinput",
                 new ActionVerification(true, "desktop-screenshot-reobserve", desktopCapture.Sha256, desktopAfterCapture.Sha256),
-                new { x = desktopPoint.X, y = desktopPoint.Y, after_screenshot_id = desktopAfterCapture.Id, visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256 });
+                new
+                {
+                    x = desktopPoint.X,
+                    y = desktopPoint.Y,
+                    after_screenshot_id = desktopAfterCapture.Id,
+                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(desktopCapture, desktopAfterCapture)
+                });
         }
         if (IsDirectScreenAction(args))
         {
@@ -1094,7 +1103,14 @@ public sealed class BrokerDispatcher : IDisposable
             "scroll",
             "sendinput",
             new ActionVerification(after.IsForeground, "window-and-screenshot-reobserve", beforeCapture?.Sha256, afterCapture.Sha256),
-            new { x = point.X, y = point.Y, after_screenshot_id = afterCapture.Id, visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256 });
+            new
+            {
+                x = point.X,
+                y = point.Y,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
     }
 
     private ActionResult Drag(JsonElement args)
@@ -1114,7 +1130,16 @@ public sealed class BrokerDispatcher : IDisposable
                 "drag",
                 "sendinput",
                 new ActionVerification(true, "desktop-screenshot-reobserve", desktopCapture.Sha256, desktopAfterCapture.Sha256),
-                new { from = desktopFrom, to = desktopTo, button = desktopButton, held_buttons = _input.HeldMouseButtons, after_screenshot_id = desktopAfterCapture.Id, visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256 });
+                new
+                {
+                    from = desktopFrom,
+                    to = desktopTo,
+                    button = desktopButton,
+                    held_buttons = _input.HeldMouseButtons,
+                    after_screenshot_id = desktopAfterCapture.Id,
+                    visual_changed = desktopCapture.Sha256 != desktopAfterCapture.Sha256,
+                    visual_diff = ActionVisualDiff(desktopCapture, desktopAfterCapture)
+                });
         }
         if (IsDirectScreenAction(args))
         {
@@ -1148,7 +1173,65 @@ public sealed class BrokerDispatcher : IDisposable
             "drag",
             "sendinput",
             new ActionVerification(after.IsForeground, "window-and-screenshot-reobserve", beforeCapture?.Sha256, afterCapture.Sha256),
-            new { from, to, button, held_buttons = _input.HeldMouseButtons, after_screenshot_id = afterCapture.Id, visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256 });
+            new
+            {
+                from,
+                to,
+                button,
+                held_buttons = _input.HeldMouseButtons,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256,
+                visual_diff = ActionVisualDiff(beforeCapture, afterCapture)
+            });
+    }
+
+    private object? ActionVisualDiff(ScreenshotRecord? before, CaptureResult after)
+    {
+        if (before is null) return null;
+        if (before.SourceBounds != after.Bounds)
+        {
+            return new
+            {
+                comparable = false,
+                reason = "source-bounds-changed",
+                before_source_bounds = before.SourceBounds,
+                after_source_bounds = after.Bounds
+            };
+        }
+
+        CaptureResult comparableAfter;
+        try
+        {
+            comparableAfter = before.ImageRegion is null
+                ? after
+                : _capture.Crop(after, before.ImageRegion);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            return new
+            {
+                comparable = false,
+                reason = "source-region-no-longer-fits",
+                detail = error.Message,
+                before_capture_bounds = before.CaptureBounds,
+                after_source_bounds = after.Bounds
+            };
+        }
+
+        var diff = _visualDiff.Compare(before.Capture, comparableAfter, channelThreshold: 0, tileSize: 32, maxRegions: 20);
+        return new
+        {
+            comparable = true,
+            changed = diff.Changed,
+            changed_pixels = diff.ChangedPixels,
+            changed_fraction = diff.ChangedFraction,
+            max_channel_delta = diff.MaxChannelDelta,
+            changed_image_bounds = diff.ChangedImageBounds,
+            changed_screen_bounds = diff.ChangedScreenBounds,
+            regions = diff.Regions,
+            region_count = diff.RegionCount,
+            omitted_regions = diff.OmittedRegions
+        };
     }
 
     private object Activate(JsonElement args)

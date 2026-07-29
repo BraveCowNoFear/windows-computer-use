@@ -136,6 +136,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Full-gate repetition exposed an intermittent first Ctrl+C delivery miss. `copy_text` now divides its requested sequence-change window across two attempts and performs one semantic-refocus retry only after the first attempt proves no clipboard publication; unknown-state actions are still never replayed.
 - Back-to-back E2E then exposed delayed clipboard replacement after an otherwise successful write. Text publication now requires the content and native sequence number to remain stable for 150 ms and re-publishes for up to two seconds, matching the restore path instead of relying on an immediate readback.
 
+### v0.19.0 — unchanged-current-foreground keyboard parity
+
+- `press_key`, `key_down`, `key_up`, and `type_text` now accept `desktop=true`, keeping the current foreground/focus and sending native input without resolving or activating another window. Explicit window mode remains the default; desktop mode rejects `window_id`, `title`, or `app` conflicts before input.
+- Desktop key actions report the foreground HWND before/after, while cross-action held-key tracking and Broker-restart recovery remain shared with window mode. `key_up` can release globally even when Windows temporarily exposes no foreground HWND.
+- Twenty-six unit tests gate all four desktop schemas. Real MCP E2E focuses the isolated edit once, then proves selector-free Ctrl+A, Unicode text, Shift down/up application events, foreground preservation, selector-conflict rejection, and final system input cleanup.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

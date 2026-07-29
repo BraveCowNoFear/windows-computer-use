@@ -755,7 +755,7 @@ public sealed class BrokerDispatcher : IDisposable
     private ActionResult PressKey(JsonElement args)
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
-        var window = _windows.Activate(_windows.Resolve(args));
+        var target = ResolveKeyboardTarget(args);
         var repeat = Math.Clamp(args.Int("repeat", 1), 1, 100);
         var intervalMs = Math.Clamp(args.Int("interval_ms", 40), 0, 5_000);
         for (var index = 0; index < repeat; index++)
@@ -765,36 +765,77 @@ public sealed class BrokerDispatcher : IDisposable
         }
         _screenshots.Clear();
         Thread.Sleep(60);
-        return new ActionResult(true, "press_key", "sendinput", new ActionVerification(true, "foreground-window", window.Id.ToString(), _windows.Resolve(window.Id).IsForeground.ToString()), new { repeat, interval_ms = intervalMs });
+        if (target.Desktop)
+        {
+            var after = _windows.GetForeground();
+            return new ActionResult(
+                true,
+                "press_key",
+                "sendinput-current-foreground",
+                new ActionVerification(true, "foreground-input-no-activation", target.Window.Id.ToString(), after?.Id.ToString()),
+                new { repeat, interval_ms = intervalMs, desktop = true, foreground_before = target.Window, foreground_after = after });
+        }
+        return new ActionResult(true, "press_key", "sendinput", new ActionVerification(true, "foreground-window", target.Window.Id.ToString(), _windows.Resolve(target.Window.Id).IsForeground.ToString()), new { repeat, interval_ms = intervalMs, desktop = false });
     }
 
     private ActionResult KeyDown(JsonElement args)
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
-        var window = _windows.Activate(_windows.Resolve(args));
+        var target = ResolveKeyboardTarget(args);
         _input.KeyDown(key);
         _screenshots.Clear();
-        return new ActionResult(true, "key_down", "sendinput-key-state", new ActionVerification(true, "held-key-state", null, string.Join('+', _input.HeldKeys)), new { held_keys = _input.HeldKeys, window_id = window.Id });
+        return new ActionResult(
+            true,
+            "key_down",
+            target.Desktop ? "sendinput-current-foreground-key-state" : "sendinput-key-state",
+            new ActionVerification(true, "held-key-state", null, string.Join('+', _input.HeldKeys)),
+            new { held_keys = _input.HeldKeys, window_id = target.Window.Id, desktop = target.Desktop });
     }
 
     private ActionResult KeyUp(JsonElement args)
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
-        var window = _windows.Activate(_windows.Resolve(args));
+        var desktop = args.Bool("desktop");
+        if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+        var window = desktop ? _windows.GetForeground() : _windows.Activate(_windows.Resolve(args));
         var before = string.Join('+', _input.HeldKeys);
         _input.KeyUp(key);
         _screenshots.Clear();
-        return new ActionResult(true, "key_up", "sendinput-key-state", new ActionVerification(true, "held-key-state", before, string.Join('+', _input.HeldKeys)), new { held_keys = _input.HeldKeys, window_id = window.Id });
+        return new ActionResult(
+            true,
+            "key_up",
+            desktop ? "sendinput-current-foreground-key-state" : "sendinput-key-state",
+            new ActionVerification(true, "held-key-state", before, string.Join('+', _input.HeldKeys)),
+            new { held_keys = _input.HeldKeys, window_id = window?.Id, desktop });
     }
 
     private ActionResult TypeText(JsonElement args)
     {
         var text = args.String("text") ?? throw new ArgumentException("text is required");
-        var window = _windows.Activate(_windows.Resolve(args));
+        var target = ResolveKeyboardTarget(args);
         _input.TypeText(text);
         _screenshots.Clear();
         Thread.Sleep(80);
-        return new ActionResult(true, "type_text", "sendinput-unicode", new ActionVerification(true, "foreground-window", window.Id.ToString(), _windows.Resolve(window.Id).IsForeground.ToString()));
+        if (target.Desktop)
+        {
+            var after = _windows.GetForeground();
+            return new ActionResult(
+                true,
+                "type_text",
+                "sendinput-unicode-current-foreground",
+                new ActionVerification(true, "foreground-input-no-activation", target.Window.Id.ToString(), after?.Id.ToString()),
+                new { desktop = true, foreground_before = target.Window, foreground_after = after });
+        }
+        return new ActionResult(true, "type_text", "sendinput-unicode", new ActionVerification(true, "foreground-window", target.Window.Id.ToString(), _windows.Resolve(target.Window.Id).IsForeground.ToString()), new { desktop = false });
+    }
+
+    private (WindowDescriptor Window, bool Desktop) ResolveKeyboardTarget(JsonElement args)
+    {
+        if (!args.Bool("desktop")) return (_windows.Activate(_windows.Resolve(args)), false);
+        if (HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
+        var foreground = _windows.GetForeground()
+            ?? throw new InvalidOperationException("Windows has no current foreground window. Select and activate a window before sending desktop keyboard input.");
+        return (foreground, true);
     }
 
     private ActionResult Scroll(JsonElement args)

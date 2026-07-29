@@ -26,6 +26,15 @@ public sealed class WindowService
         return windows.OrderByDescending(window => window.IsForeground).ThenBy(window => window.Title).ToArray();
     }
 
+    public WindowDescriptor? GetForeground()
+    {
+        var handle = NativeMethods.GetForegroundWindow();
+        if (handle == 0) return null;
+        var window = DescribeWindow(handle, handle, requireVisible: false, includeUntitled: true);
+        if (window is not null) Remember(window);
+        return window;
+    }
+
     public WindowDescriptor Resolve(long id = 0, string? title = null, string? app = null)
     {
         if (id != 0)

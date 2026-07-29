@@ -26,6 +26,19 @@ public sealed class ProtocolTests
     }
 
     [Fact]
+    public void KeyboardTools_AdvertiseCurrentForegroundDesktopMode()
+    {
+        foreach (var toolName in new[] { "press_key", "key_down", "key_up", "type_text" })
+        {
+            var tool = Assert.Single(ToolCatalog.All, candidate => candidate.Name == toolName);
+            var schema = JsonSerializer.SerializeToElement(tool.InputSchema, ProtocolJson.Options);
+            Assert.True(schema.GetProperty("properties").TryGetProperty("desktop", out var desktop), $"{toolName} must expose desktop=true.");
+            Assert.Equal("boolean", desktop.GetProperty("type").GetString());
+        }
+    }
+
+
+    [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
         Assert.Equal(35, ToolCatalog.All.Count);

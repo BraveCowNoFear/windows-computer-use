@@ -244,6 +244,36 @@ try {
     if (-not $uppercaseWait.matched) { throw 'Printable uppercase repeat did not apply its implied Shift modifier.' }
     Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
 
+    $script:stage = 'desktop-keyboard'
+    Invoke-WcuTool -Name 'perform_secondary_action' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; action = 'focus' } | Out-Null
+    $desktopSelect = Invoke-WcuTool -Name 'press_key' -Arguments @{ desktop = $true; key = 'ctrl+a' }
+    if ($desktopSelect.backend -ne 'sendinput-current-foreground' -or -not $desktopSelect.data.desktop -or [long]$desktopSelect.data.foreground_before.id -ne $windowId) {
+        throw 'Desktop keypress did not preserve and report the current foreground window.'
+    }
+    $desktopText = 'Desktop ' + [char]0x952E + [char]0x76D8
+    $desktopTyped = Invoke-WcuTool -Name 'type_text' -Arguments @{ desktop = $true; text = $desktopText }
+    if ($desktopTyped.backend -ne 'sendinput-unicode-current-foreground' -or -not $desktopTyped.data.desktop -or [long]$desktopTyped.data.foreground_after.id -ne $windowId) {
+        throw 'Desktop Unicode typing did not retain the current foreground window.'
+    }
+    $desktopTextWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = $desktopText; timeout_ms = 1500 }
+    if (-not $desktopTextWait.matched) { throw 'Desktop Unicode typing did not reach the existing focused control.' }
+    $desktopHeld = Invoke-WcuTool -Name 'key_down' -Arguments @{ desktop = $true; key = 'shift' }
+    if (-not $desktopHeld.data.desktop -or @($desktopHeld.data.held_keys) -notcontains 'shift') { throw 'Desktop key_down did not track Shift.' }
+    $desktopShiftDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key down: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $desktopShiftDownWait.matched) { throw 'The focused test app did not observe desktop Shift down.' }
+    $desktopReleased = Invoke-WcuTool -Name 'key_up' -Arguments @{ desktop = $true; key = 'shift' }
+    if (-not $desktopReleased.data.desktop -or @($desktopReleased.data.held_keys).Count -ne 0) { throw 'Desktop key_up did not release Shift.' }
+    $desktopShiftUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key up: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $desktopShiftUpWait.matched) { throw 'The focused test app did not observe desktop Shift up.' }
+    $desktopConflictRejected = $false
+    try {
+        Invoke-WcuTool -Name 'press_key' -Arguments @{ desktop = $true; window_id = $windowId; key = 'escape' } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'desktop=true cannot be combined with a window selector') { $desktopConflictRejected = $true } else { throw }
+    }
+    if (-not $desktopConflictRejected) { throw 'Desktop keyboard mode accepted a conflicting window selector.' }
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
+
     $script:stage = 'mouse-state'
     $mouseSurface = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'MouseSurface'; limit = 2 }
     if ($mouseSurface.count -ne 1) { throw 'Could not uniquely resolve the mouse interaction surface.' }
@@ -633,6 +663,9 @@ try {
         image_screenshot_space_mapping = $imageWait.matched
         held_key_roundtrip = $shiftDownWait.matched -and $shiftUpWait.matched
         implied_shift_repeat = $uppercaseWait.matched
+        desktop_keyboard_text = $desktopTextWait.matched
+        desktop_keyboard_hold = $desktopShiftDownWait.matched -and $desktopShiftUpWait.matched
+        desktop_keyboard_conflict_rejected = $desktopConflictRejected
         held_mouse_roundtrip = $mouseDownWait.matched -and $mouseUpWait.matched
         configurable_button_drag = $rightDragWait.matched
         direct_screen_mouse_roundtrip = $directMouseDownWait.matched -and $directMouseUpWait.matched

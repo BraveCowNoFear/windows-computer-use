@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.18.0" },
-            instructions = "Full-control Windows MCP. Prefer UIA; use atomic paste_text/copy_text for reversible clipboard transfer; use wait_for_window for dialogs; bind visual pixels to their screenshot id; restore minimized windows before vision."
+            serverInfo = new { name = "windows-computer-use", version = "0.19.0" },
+            instructions = "Full-control Windows MCP. Prefer UIA; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use wait_for_window for dialogs; bind visual pixels to their screenshot id; restore minimized windows before vision."
         };
     }
 

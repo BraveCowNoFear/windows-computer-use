@@ -12,14 +12,15 @@
 - 会话内稳定控件 ID；UIA 元素失效后会按语义选择器自动重新定位。
 - 语义 `invoke` 与 Unicode `enter_text`，失败后降级到原生 SendInput。
 - 物理像素点击、拖拽、滚轮、组合键、应用启动、窗口激活和虚拟桌面坐标。
-- `PrintWindow` 窗口 PNG 捕获与屏幕复制降级。
+- 无系统选框的原生 Windows Graphics Capture 窗口 PNG 捕获，并保留 `PrintWindow` 与屏幕复制降级。
 - 使用已安装 Windows 语言包的原生 `Windows.Media.Ocr`。
 - 条件等待代替盲目 sleep；每次动作后自动重新观测验证。
-- 16 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
+- 一次调用同时返回 UIA 与画面的 `snapshot`，带时间、截图 ID 和 SHA-256；窗口移动、缩放或截图过期后拒绝继续盲点。
+- 17 个工具的本地 stdio MCP，以及仅当前用户可连接的命名管道 Broker。
 - 与 `desktop-control-for-windows` 共用全局 UI 锁协议。
 - 真实 WinForms 端到端测试：MCP 握手、UIA 发现、中文输入、语义 Invoke、状态等待、截图、OCR 与清理。
 
-Windows Graphics Capture、GPU 视觉定位，以及覆盖 Office、微信、SolidWorks 的大规模基准仍未完成。当前捕获层如实采用 Win32 `PrintWindow`/屏幕复制，并未冒充 WGC。
+本地视觉语言定位，以及覆盖 Office、微信、SolidWorks 的大规模基准仍未完成；当前视觉理解层使用 OCR 与模型侧图像推理。
 
 ## 架构
 
@@ -29,7 +30,7 @@ flowchart LR
     B --> C["本地 stdio MCP"]
     C -->|"当前用户命名管道"| D["C# 原生 Broker"]
     D --> E["UIA3 语义树"]
-    D --> F["Win32 截图与窗口"]
+    D --> F["Windows Graphics Capture + Win32"]
     D --> G["Windows.Media.Ocr"]
     D --> H["SendInput 鼠标键盘"]
     E --> I["目标 Windows 应用"]
@@ -49,7 +50,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` 会还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口、通过真实 MCP 驱动它、验证 OCR、关闭测试应用，并在任一门禁失败时返回非零退出码。
+`test.ps1` 会还原依赖、构建并发布 Broker/MCP、运行 xUnit、打开隔离的 WinForms 测试窗口，并硬性验证 WGC、快照新鲜度、过期坐标拒绝和 OCR；任一门禁失败都会返回非零退出码。
 
 构建后还可运行 `scripts/real-app-smoke.ps1` 做非破坏性真实应用兼容测试：它会打开隔离的记事本、资源管理器和设置窗口，完成 UIA/截图/OCR，并且只关闭测试前不存在的窗口 ID。
 
@@ -69,9 +70,9 @@ codex plugin marketplace add .
 
 ## MCP 工具面
 
-16 个工具分别是：`list_windows`、`launch_app`、`inspect_window`、`find_controls`、`invoke`、`enter_text`、`wait_for_ui`、`capture`、`ocr`、`click`、`press_key`、`type_text`、`scroll`、`drag`、`activate_window`、`end_session`。
+17 个工具分别是：`list_windows`、`launch_app`、`inspect_window`、`find_controls`、`invoke`、`enter_text`、`wait_for_ui`、`capture`、`snapshot`、`ocr`、`click`、`press_key`、`type_text`、`scroll`、`drag`、`activate_window`、`end_session`。
 
-窗口应使用 `list_windows` 返回的精确 ID；操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID；坐标操作前重新截图/OCR。坐标统一为物理像素，默认相对目标窗口。
+窗口应使用 `list_windows` 返回的精确 ID；操作优先使用 `inspect_window`/`find_controls` 返回的稳定控件 ID。确需坐标时先调用 `snapshot`，再把它的 `screenshot_id` 交给坐标动作；目标移动、缩放或超过 `max_age_ms` 后 Broker 会拒绝盲点。坐标统一为物理像素，默认相对目标窗口。
 
 ## 仓库结构
 

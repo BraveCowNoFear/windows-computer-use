@@ -19,20 +19,22 @@ public static class ToolCatalog
             QueryProps(("control_id", S("string", "Stable control id.")), ("text", S("string", "Text to enter.")), ("append", S("boolean", "Append instead of replacing."))), ["text"]),
         Tool("wait_for_ui", "Poll UIA until a control exists, disappears, becomes visible, enabled, or focused.",
             QueryProps(("state", Enum("exists", "absent", "visible", "hidden", "enabled", "focused")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
-        Tool("capture", "Capture a window (including many occluded windows through PrintWindow) or the virtual desktop and return PNG image content.",
+        Tool("capture", "Capture a window through Windows Graphics Capture with PrintWindow/screen-copy fallback, or capture the virtual desktop, and return PNG image content.",
             WindowProps(("desktop", S("boolean", "Capture the full virtual desktop instead of one window.")), ("path", S("string", "Optional absolute output path.")))),
+        Tool("snapshot", "Return one atomic computer-use observation containing the UIA semantic state and a fresh window image with screenshot id, timestamp, and content hash.",
+            WindowProps(("limit", S("integer", "Maximum UIA elements, default 400.")), ("path", S("string", "Optional absolute output path.")))),
         Tool("ocr", "Run Windows.Media.Ocr on a window, desktop, or existing PNG using installed Windows language packs.",
             WindowProps(("desktop", S("boolean", "OCR the virtual desktop.")), ("path", S("string", "Existing image path; when omitted a fresh capture is used.")), ("language", S("string", "Optional BCP-47 language tag.")))),
         Tool("click", "Click physical pixels in a selected window using SendInput. Coordinates are window-relative by default.",
-            WindowProps(("x", S("integer", "X coordinate.")), ("y", S("integer", "Y coordinate.")), ("relative", S("boolean", "Treat x/y as window-relative, default true.")), ("button", Enum("left", "right", "middle")), ("count", S("integer", "Click count 1-4."))), ["x", "y"]),
+            WindowProps(("x", S("integer", "X coordinate.")), ("y", S("integer", "Y coordinate.")), ("relative", S("boolean", "Treat x/y as window-relative, default true.")), ("button", Enum("left", "right", "middle")), ("count", S("integer", "Click count 1-4.")), ("screenshot_id", S("string", "Bind the coordinates to a recent capture/snapshot; stale or moved windows are rejected.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms."))), ["x", "y"]),
         Tool("press_key", "Press a + separated key chord in a selected window, such as ctrl+s or alt+f4.",
             WindowProps(("key", S("string", "Key or chord."))), ["key"]),
         Tool("type_text", "Type arbitrary Unicode text into the currently focused control of a selected window with SendInput.",
             WindowProps(("text", S("string", "Text to type."))), ["text"]),
         Tool("scroll", "Scroll vertically or horizontally at a point in a selected window using SendInput.",
-            WindowProps(("x", S("integer", "X coordinate, window center by default.")), ("y", S("integer", "Y coordinate, window center by default.")), ("relative", S("boolean", "Window-relative coordinates, default true.")), ("vertical", S("integer", "Wheel notches; positive up, negative down.")), ("horizontal", S("integer", "Wheel notches; positive right, negative left.")))),
+            WindowProps(("x", S("integer", "X coordinate, window center by default.")), ("y", S("integer", "Y coordinate, window center by default.")), ("relative", S("boolean", "Window-relative coordinates, default true.")), ("vertical", S("integer", "Wheel notches; positive up, negative down.")), ("horizontal", S("integer", "Wheel notches; positive right, negative left.")), ("screenshot_id", S("string", "Bind coordinates to a recent capture/snapshot.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms.")))),
         Tool("drag", "Drag with the left mouse button between two points in a selected window.",
-            WindowProps(("from_x", S("integer", "Start X.")), ("from_y", S("integer", "Start Y.")), ("to_x", S("integer", "End X.")), ("to_y", S("integer", "End Y.")), ("relative", S("boolean", "Window-relative coordinates, default true.")), ("duration_ms", S("integer", "Drag duration."))), ["from_x", "from_y", "to_x", "to_y"]),
+            WindowProps(("from_x", S("integer", "Start X.")), ("from_y", S("integer", "Start Y.")), ("to_x", S("integer", "End X.")), ("to_y", S("integer", "End Y.")), ("relative", S("boolean", "Window-relative coordinates, default true.")), ("duration_ms", S("integer", "Drag duration.")), ("screenshot_id", S("string", "Bind coordinates to a recent capture/snapshot.")), ("max_age_ms", S("integer", "Maximum screenshot age, default 15000 ms."))), ["from_x", "from_y", "to_x", "to_y"]),
         Tool("activate_window", "Restore and bring exactly one selected window to the foreground.", WindowProps()),
         Tool("end_session", "Clear cached UIA elements and explicitly end the current control session.", Props())
     ];
@@ -41,7 +43,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "inspect_window" or "find_controls" or "capture" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "inspect_window" or "find_controls" or "capture" or "snapshot" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

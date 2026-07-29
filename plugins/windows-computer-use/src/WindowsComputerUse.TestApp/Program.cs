@@ -3,10 +3,32 @@ namespace WindowsComputerUse.TestApp;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new TestForm());
+        Application.Run(args.Contains("--occluder", StringComparer.OrdinalIgnoreCase) ? new OccluderForm() : new TestForm());
+    }
+}
+
+internal sealed class OccluderForm : Form
+{
+    public OccluderForm()
+    {
+        Text = "Windows Computer Use Occluder";
+        StartPosition = FormStartPosition.CenterScreen;
+        ClientSize = new Size(520, 230);
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
+        BackColor = Color.Black;
+        Controls.Add(new Label
+        {
+            Text = "OCCLUDER",
+            AutoSize = true,
+            ForeColor = Color.White,
+            BackColor = Color.Black,
+            Font = new Font(SystemFonts.MessageBoxFont?.FontFamily ?? FontFamily.GenericSansSerif, 22, FontStyle.Bold),
+            Location = new Point(170, 85)
+        });
     }
 }
 

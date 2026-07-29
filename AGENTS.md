@@ -11,9 +11,11 @@
 
 ## Change gates
 
+- Before project work, read this file, `MEMORY.md`, and `git status --short`. Preserve unrelated user changes.
+- Update `MEMORY.md` after a verified architecture milestone, compatibility finding, or release; keep it concise and evidence-based.
 - Read the root and plugin manifests before changing layout or tool names.
 - Keep English `README.md` and Chinese `README.zh-CN.md` aligned.
 - Run `plugins/windows-computer-use/scripts/test.ps1` before claiming completion.
-- A release is not complete unless the MCP stdio handshake, UIA Unicode entry, semantic invoke, condition wait, capture, OCR, and session cleanup pass end to end on real Windows UI.
+- A release is not complete unless the MCP stdio handshake, UIA Unicode entry, semantic invoke, condition wait, native capture, observation freshness, OCR, and session cleanup pass end to end on real Windows UI.
 - Do not commit `bin`, `obj`, `dist`, screenshots, audit logs, or user-specific paths.
 - Keep stdout of the MCP and broker protocols machine-readable; send diagnostics only to stderr.

@@ -72,7 +72,7 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.1.0" },
+            serverInfo = new { name = "windows-computer-use", version = "0.2.0" },
             instructions = "Full-control Windows MCP. Select exactly one window from list_windows, prefer UIA tools, re-inspect after state changes, and end_session when finished."
         };
     }
@@ -86,15 +86,45 @@ public sealed class McpServer : IAsyncDisposable
         try
         {
             var result = await _broker.CallAsync(name, arguments, cancellationToken);
-            if (name == "capture")
+            if (name is "capture" or "snapshot")
             {
-                var capture = result.Deserialize<CaptureResult>(ProtocolJson.Options)
+                var snapshot = name == "snapshot"
+                    ? result.Deserialize<WindowStateSnapshot>(ProtocolJson.Options)
+                    : null;
+                var capture = snapshot?.Capture ?? result.Deserialize<CaptureResult>(ProtocolJson.Options)
                     ?? throw new InvalidDataException("Capture result was empty.");
+                var metadata = name == "snapshot"
+                    ? JsonSerializer.Serialize(new
+                    {
+                        snapshot!.Inspection,
+                        Capture = new
+                        {
+                            capture.Id,
+                            capture.Width,
+                            capture.Height,
+                            capture.Bounds,
+                            capture.Backend,
+                            capture.CapturedAt,
+                            capture.Sha256,
+                            capture.Path
+                        }
+                    }, ProtocolJson.Options)
+                    : JsonSerializer.Serialize(new
+                    {
+                        capture.Id,
+                        capture.Width,
+                        capture.Height,
+                        capture.Bounds,
+                        capture.Backend,
+                        capture.CapturedAt,
+                        capture.Sha256,
+                        capture.Path
+                    }, ProtocolJson.Options);
                 return new
                 {
                     content = new object[]
                     {
-                        new { type = "text", text = JsonSerializer.Serialize(new { capture.Id, capture.Width, capture.Height, capture.Bounds, capture.Backend, capture.Path }, ProtocolJson.Options) },
+                        new { type = "text", text = metadata },
                         new { type = "image", data = capture.Data, mimeType = capture.MimeType }
                     }
                 };

@@ -12,14 +12,15 @@ The plugin runs in **full-control mode**. It does not maintain its own app allow
 - Stable session control ids with automatic re-location when UIA elements become stale.
 - Semantic `invoke` and Unicode `enter_text`, with native SendInput fallback.
 - Physical mouse click, drag, wheel, keyboard chords, app launching, window activation, and virtual-desktop coordinates.
-- Window or desktop PNG capture through `PrintWindow` and screen-copy fallback.
+- Picker-free window PNG capture through native Windows Graphics Capture, with `PrintWindow` and screen-copy fallback.
 - Native `Windows.Media.Ocr` using installed Windows language packs.
 - Condition waits instead of blind sleeps and automatic re-observation after every action.
-- A local stdio MCP with 16 tools and a current-user named-pipe broker.
+- Atomic UIA + image `snapshot` observations, timestamped screenshot ids and SHA-256 hashes, plus stale-coordinate rejection after a window moves, resizes, or ages out.
+- A local stdio MCP with 17 tools and a current-user named-pipe broker.
 - Compatibility with the global UI lock from `desktop-control-for-windows`.
 - A real WinForms end-to-end test covering MCP handshake, UIA discovery, Chinese input, semantic invoke, condition wait, capture, OCR, and cleanup.
 
-Windows Graphics Capture, GPU visual grounding, and a broad Office/WeChat/SolidWorks benchmark corpus are not yet implemented. The present capture layer is honest Win32 `PrintWindow`/screen copy, not WGC.
+Local visual-language grounding and a broad Office/WeChat/SolidWorks benchmark corpus are not yet implemented. OCR and model-side image reasoning remain the visual interpretation layer.
 
 ## Architecture
 
@@ -29,7 +30,7 @@ flowchart LR
     B --> C["Local stdio MCP"]
     C -->|"current-user named pipe"| D["C# native broker"]
     D --> E["UIA3 semantic tree"]
-    D --> F["Win32 capture and windows"]
+    D --> F["Windows Graphics Capture + Win32"]
     D --> G["Windows.Media.Ocr"]
     D --> H["SendInput mouse and keyboard"]
     E --> I["Target Windows app"]
@@ -49,7 +50,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` restores dependencies, builds and publishes the broker/MCP, runs the xUnit suite, opens the isolated WinForms test window, drives it through the real MCP, verifies OCR, closes the test app, and exits non-zero on any failed gate.
+`test.ps1` restores dependencies, builds and publishes the broker/MCP, runs the xUnit suite, opens the isolated WinForms test window, drives it through the real MCP, hard-gates Windows Graphics Capture, snapshot freshness, stale-coordinate rejection and OCR, closes the test app, and exits non-zero on any failed gate.
 
 For a non-destructive real-app compatibility pass, run `scripts/real-app-smoke.ps1` after building. It opens isolated Notepad, File Explorer, and Settings windows, inspects/captures/OCRs them, and closes only windows whose ids were absent before the test.
 
@@ -69,9 +70,9 @@ Install **Windows Computer Use** from the local **Brave Cow Windows Tools** mark
 
 ## MCP surface
 
-The 16 tools are `list_windows`, `launch_app`, `inspect_window`, `find_controls`, `invoke`, `enter_text`, `wait_for_ui`, `capture`, `ocr`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `activate_window`, and `end_session`.
+The 17 tools are `list_windows`, `launch_app`, `inspect_window`, `find_controls`, `invoke`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `activate_window`, and `end_session`.
 
-Use the exact window id returned by `list_windows`. Prefer stable control ids from `inspect_window`/`find_controls`; use fresh capture/OCR before coordinate actions. Coordinates are physical pixels and window-relative by default.
+Use the exact window id returned by `list_windows`. Prefer stable control ids from `inspect_window`/`find_controls`; otherwise use `snapshot`, then pass its `screenshot_id` to coordinate actions. The broker rejects stale ids if the target moved, resized, or exceeded `max_age_ms`. Coordinates are physical pixels and window-relative by default.
 
 ## Repository layout
 

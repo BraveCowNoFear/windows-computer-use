@@ -1,4 +1,4 @@
-param([switch]$KeepTestWindow, [switch]$KeepArtifacts)
+param([switch]$KeepTestWindow, [switch]$KeepArtifacts, [switch]$RequireWgc)
 
 $ErrorActionPreference = 'Stop'
 $pluginRoot = Split-Path -Parent $PSScriptRoot
@@ -10,6 +10,7 @@ foreach ($requiredPath in @($mcpPath, $brokerPath, $testAppPath)) {
 }
 
 $testApp = $null
+$occluder = $null
 $mcp = $null
 $capturePath = Join-Path $env:TEMP ("windows-computer-use-e2e-{0}.png" -f [guid]::NewGuid().ToString('N'))
 $nextId = 0
@@ -34,7 +35,7 @@ function Invoke-WcuTool {
     param([string]$Name, [hashtable]$Arguments = @{})
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
     if ($result.isError) { throw "Tool $Name failed: $($result.content[0].text)" }
-    if ($Name -eq 'capture') { return $result }
+    if ($Name -in @('capture', 'snapshot')) { return $result }
     return ($result.content[0].text | ConvertFrom-Json)
 }
 
@@ -57,6 +58,7 @@ try {
     $start.EnvironmentVariables['WCU_BROKER_PATH'] = $brokerPath
     $start.EnvironmentVariables['WCU_PLUGIN_ROOT'] = $pluginRoot
     $start.EnvironmentVariables['WCU_DEBUG'] = '1'
+    if ($RequireWgc) { $start.EnvironmentVariables['WCU_REQUIRE_WGC'] = '1' }
     $mcp = [System.Diagnostics.Process]::new()
     $mcp.StartInfo = $start
     if (-not $mcp.Start()) { throw 'Could not start MCP process.' }
@@ -64,7 +66,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 16) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 17) { throw 'MCP tool catalog is incomplete.' }
 
     $windows = Invoke-WcuTool -Name 'list_windows'
     $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
@@ -96,10 +98,42 @@ try {
     $waited = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = $expected; state = 'exists'; timeout_ms = 5000 }
     if (-not $waited.matched) { throw 'UI condition did not become true after invoke.' }
 
+    $snapshot = Invoke-WcuTool -Name 'snapshot' -Arguments @{ window_id = $windowId; limit = 100 }
+    if (@($snapshot.content).Count -ne 2 -or $snapshot.content[1].type -ne 'image') { throw 'Snapshot did not return text and image content.' }
+    $snapshotMeta = $snapshot.content[0].text | ConvertFrom-Json
+    if (@($snapshotMeta.inspection.controls).Count -lt 4) { throw 'Snapshot UIA state is incomplete.' }
+    if ($snapshotMeta.capture.sha256 -notmatch '^[0-9a-f]{64}$' -or -not $snapshotMeta.capture.capturedAt) { throw 'Snapshot freshness metadata is incomplete.' }
+    if ($RequireWgc -and $snapshotMeta.capture.backend -ne 'windows-graphics-capture') { throw 'Snapshot did not use Windows Graphics Capture.' }
+
+    $pixelClick = Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $snapshotMeta.capture.id }
+    if (-not $pixelClick.ok -or $pixelClick.verification.strategy -ne 'window-and-screenshot-reobserve' -or -not $pixelClick.data.after_screenshot_id) {
+        throw 'Screenshot-bound pixel action did not re-observe the window.'
+    }
+
+    $staleRejected = $false
+    Start-Sleep -Milliseconds 120
+    try {
+        Invoke-WcuTool -Name 'click' -Arguments @{ window_id = $windowId; x = 20; y = 20; screenshot_id = $snapshotMeta.capture.id; max_age_ms = 100 } | Out-Null
+    } catch {
+        if ($_.Exception.Message -match 'stale') { $staleRejected = $true } else { throw }
+    }
+    if (-not $staleRejected) { throw 'Stale screenshot coordinates were not rejected.' }
+
+    $occluder = Start-Process -FilePath $testAppPath -ArgumentList '--occluder' -PassThru
+    $occluderDeadline = [DateTime]::UtcNow.AddSeconds(5)
+    do {
+        Start-Sleep -Milliseconds 100
+        $occluder.Refresh()
+    } until ($occluder.MainWindowHandle -ne 0 -or [DateTime]::UtcNow -ge $occluderDeadline)
+    if ($occluder.MainWindowHandle -eq 0) { throw 'Occluder did not create a visible window.' }
+
     $captured = Invoke-WcuTool -Name 'capture' -Arguments @{ window_id = $windowId; path = $capturePath }
     if (-not (Test-Path -LiteralPath $capturePath)) { throw 'Capture file was not created.' }
     $captureMeta = $captured.content[0].text | ConvertFrom-Json
     if ($captureMeta.width -lt 100 -or $captureMeta.height -lt 100) { throw 'Capture dimensions are invalid.' }
+    if ($RequireWgc -and $captureMeta.backend -ne 'windows-graphics-capture') {
+        throw "Expected Windows Graphics Capture, got $($captureMeta.backend)."
+    }
 
     $ocr = Invoke-WcuTool -Name 'ocr' -Arguments @{ path = $capturePath }
     if (-not $ocr.ok -or $ocr.text -notmatch 'Semantic UI automation test') { throw 'Windows OCR did not recognize the test window heading.' }
@@ -116,6 +150,10 @@ try {
         invoke_backend = $invoked.backend
         wait_matched = $waited.matched
         capture_backend = $captureMeta.backend
+        snapshot_backend = $snapshotMeta.capture.backend
+        screenshot_bound_action = $pixelClick.verification.strategy
+        stale_screenshot_rejected = $staleRejected
+        occluded_window_capture = $true
         capture_verified = $true
         capture_path = if ($KeepArtifacts) { $capturePath } else { $null }
         ocr_ok = [bool]$ocr.ok
@@ -132,6 +170,11 @@ try {
         try { $testApp.CloseMainWindow() | Out-Null } catch {}
         if (-not $testApp.WaitForExit(1500)) { try { $testApp.Kill() } catch {} }
         $testApp.Dispose()
+    }
+    if (-not $KeepTestWindow -and $null -ne $occluder) {
+        try { $occluder.CloseMainWindow() | Out-Null } catch {}
+        if (-not $occluder.WaitForExit(1500)) { try { $occluder.Kill() } catch {} }
+        $occluder.Dispose()
     }
     if (-not $KeepArtifacts -and (Test-Path -LiteralPath $capturePath)) {
         Remove-Item -LiteralPath $capturePath -Force

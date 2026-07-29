@@ -87,7 +87,13 @@ public sealed record CaptureResult(
     int Height,
     RectDto Bounds,
     string Backend,
+    DateTimeOffset CapturedAt,
+    string Sha256,
     string? Path = null);
+
+public sealed record WindowStateSnapshot(
+    WindowInspection Inspection,
+    CaptureResult Capture);
 
 public sealed record ToolDefinition(
     string Name,

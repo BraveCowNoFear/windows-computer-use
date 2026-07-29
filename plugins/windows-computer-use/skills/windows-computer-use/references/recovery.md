@@ -6,11 +6,11 @@ Re-run `inspect_window`, then search by `automation_id`, exact `name`, and `cont
 
 ## Custom canvas or empty UIA tree
 
-Capture the selected window, run OCR, and use window-relative coordinates from the fresh image. Perform one action and capture again. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.
+Snapshot the selected window, run OCR if needed, and use window-relative coordinates from the fresh image. Pass its `screenshot_id` with the action. Electron, games, remote desktops, CAD canvases, and owner-drawn controls commonly require this route.
 
 ## Blank window capture
 
-Bring the window forward with `activate_window` and capture again. The current capture chain uses Win32 `PrintWindow` and physical screen copy. Protected video, secure desktop, and some GPU surfaces may remain unavailable until the WGC backend lands.
+Bring the window forward with `activate_window` and capture again. The capture chain uses Windows Graphics Capture first, then Win32 `PrintWindow` and physical screen copy. Protected video, secure desktop, and some higher-integrity surfaces may remain unavailable.
 
 ## Input went to the wrong control
 

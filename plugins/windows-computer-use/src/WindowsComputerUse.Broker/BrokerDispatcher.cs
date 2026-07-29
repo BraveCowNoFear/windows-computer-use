@@ -13,6 +13,7 @@ public sealed class BrokerDispatcher : IDisposable
     private readonly UiaService _uia;
     private readonly AuditLogger _audit = new();
     private readonly string _sessionId = $"session-{Guid.NewGuid():N}";
+    private readonly Dictionary<string, ScreenshotRecord> _screenshots = new(StringComparer.Ordinal);
 
     public BrokerDispatcher() => _uia = new UiaService(_windows, _input);
 
@@ -29,7 +30,7 @@ public sealed class BrokerDispatcher : IDisposable
                     ok = true,
                     session_id = _sessionId,
                     access_mode = "full-control",
-                    backends = new[] { "uia3", "win32", "sendinput", "print-window", "windows-media-ocr" },
+                    backends = new[] { "uia3", "win32", "sendinput", "windows-graphics-capture", "print-window", "windows-media-ocr" },
                     dpi_awareness = "per-monitor-v2"
                 },
                 "list_windows" => new
@@ -45,6 +46,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "enter_text" => EnterText(args),
                 "wait_for_ui" => Wait(args),
                 "capture" => Capture(args),
+                "snapshot" => Snapshot(args),
                 "ocr" => await OcrAsync(args, cancellationToken),
                 "click" => Click(args),
                 "press_key" => PressKey(args),
@@ -68,7 +70,7 @@ public sealed class BrokerDispatcher : IDisposable
     public void Dispose() => _uia.Dispose();
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "find_controls" or "invoke" or "enter_text" or "capture" or "ocr" or
+        "inspect_window" or "find_controls" or "invoke" or "enter_text" or "capture" or "snapshot" or "ocr" or
         "click" or "press_key" or "type_text" or "scroll" or "drag" or "activate_window";
 
     private object Launch(JsonElement args)
@@ -121,7 +123,15 @@ public sealed class BrokerDispatcher : IDisposable
     {
         var desktop = args.Bool("desktop");
         var window = desktop ? null : _windows.Resolve(args);
-        return _capture.Capture(window, args.String("path"));
+        return RememberCapture(window, _capture.Capture(window, args.String("path")));
+    }
+
+    private WindowStateSnapshot Snapshot(JsonElement args)
+    {
+        var window = _windows.Resolve(args);
+        var inspection = _uia.Inspect(window, args.Int("limit", 400));
+        var capture = RememberCapture(window, _capture.Capture(window, args.String("path")));
+        return new WindowStateSnapshot(inspection, capture);
     }
 
     private async Task<object> OcrAsync(JsonElement args, CancellationToken cancellationToken)
@@ -141,13 +151,30 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult Click(JsonElement args)
     {
-        var window = _windows.Activate(_windows.Resolve(args));
+        var resolved = _windows.Resolve(args);
+        var beforeCapture = ValidateScreenshot(args, resolved);
+        var window = _windows.Activate(resolved);
         var point = _input.WindowPoint(window, args.Int("x"), args.Int("y"), args.Bool("relative", true));
-        var before = $"foreground={window.Id};point={point.X},{point.Y}";
         _input.Click(point.X, point.Y, args.String("button") ?? "left", args.Int("count", 1));
         Thread.Sleep(100);
         var after = _windows.Resolve(window.Id);
-        return new ActionResult(true, "click", "sendinput", new ActionVerification(true, "window-reobserve", before, $"foreground={after.IsForeground}"), new { x = point.X, y = point.Y });
+        var afterCapture = RememberCapture(after, _capture.Capture(after));
+        return new ActionResult(
+            true,
+            "click",
+            "sendinput",
+            new ActionVerification(
+                after.IsForeground,
+                "window-and-screenshot-reobserve",
+                beforeCapture?.Sha256,
+                afterCapture.Sha256),
+            new
+            {
+                x = point.X,
+                y = point.Y,
+                after_screenshot_id = afterCapture.Id,
+                visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256
+            });
     }
 
     private ActionResult PressKey(JsonElement args)
@@ -170,20 +197,40 @@ public sealed class BrokerDispatcher : IDisposable
 
     private ActionResult Scroll(JsonElement args)
     {
-        var window = _windows.Activate(_windows.Resolve(args));
+        var resolved = _windows.Resolve(args);
+        var beforeCapture = ValidateScreenshot(args, resolved);
+        var window = _windows.Activate(resolved);
         var point = _input.WindowPoint(window, args.Int("x", window.Bounds.Width / 2), args.Int("y", window.Bounds.Height / 2), args.Bool("relative", true));
         _input.Scroll(point.X, point.Y, args.Int("vertical"), args.Int("horizontal"));
-        return new ActionResult(true, "scroll", "sendinput", new ActionVerification(true, "window-reobserve", window.Id.ToString(), _windows.Resolve(window.Id).Id.ToString()), new { x = point.X, y = point.Y });
+        Thread.Sleep(100);
+        var after = _windows.Resolve(window.Id);
+        var afterCapture = RememberCapture(after, _capture.Capture(after));
+        return new ActionResult(
+            true,
+            "scroll",
+            "sendinput",
+            new ActionVerification(after.IsForeground, "window-and-screenshot-reobserve", beforeCapture?.Sha256, afterCapture.Sha256),
+            new { x = point.X, y = point.Y, after_screenshot_id = afterCapture.Id, visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256 });
     }
 
     private ActionResult Drag(JsonElement args)
     {
-        var window = _windows.Activate(_windows.Resolve(args));
+        var resolved = _windows.Resolve(args);
+        var beforeCapture = ValidateScreenshot(args, resolved);
+        var window = _windows.Activate(resolved);
         var relative = args.Bool("relative", true);
         var from = _input.WindowPoint(window, args.Int("from_x"), args.Int("from_y"), relative);
         var to = _input.WindowPoint(window, args.Int("to_x"), args.Int("to_y"), relative);
         _input.Drag(from.X, from.Y, to.X, to.Y, args.Int("duration_ms", 300));
-        return new ActionResult(true, "drag", "sendinput", new ActionVerification(true, "window-reobserve", window.Id.ToString(), _windows.Resolve(window.Id).Id.ToString()), new { from, to });
+        Thread.Sleep(100);
+        var after = _windows.Resolve(window.Id);
+        var afterCapture = RememberCapture(after, _capture.Capture(after));
+        return new ActionResult(
+            true,
+            "drag",
+            "sendinput",
+            new ActionVerification(after.IsForeground, "window-and-screenshot-reobserve", beforeCapture?.Sha256, afterCapture.Sha256),
+            new { from, to, after_screenshot_id = afterCapture.Id, visual_changed = beforeCapture is null ? (bool?)null : beforeCapture.Sha256 != afterCapture.Sha256 });
     }
 
     private object Activate(JsonElement args)
@@ -195,6 +242,35 @@ public sealed class BrokerDispatcher : IDisposable
     private object EndSession()
     {
         _uia.ClearSession();
+        _screenshots.Clear();
         return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow };
     }
+
+    private CaptureResult RememberCapture(WindowDescriptor? window, CaptureResult capture)
+    {
+        if (window is not null)
+        {
+            _screenshots[capture.Id] = new ScreenshotRecord(window.Id, window.Bounds, capture.CapturedAt, capture.Sha256);
+            while (_screenshots.Count > 32) _screenshots.Remove(_screenshots.First().Key);
+        }
+        return capture;
+    }
+
+    private ScreenshotRecord? ValidateScreenshot(JsonElement args, WindowDescriptor window)
+    {
+        var screenshotId = args.String("screenshot_id");
+        if (string.IsNullOrWhiteSpace(screenshotId)) return null;
+        if (!_screenshots.TryGetValue(screenshotId, out var screenshot))
+            throw new InvalidOperationException("Unknown or expired screenshot_id. Capture or snapshot the target window again before using pixel coordinates.");
+        if (screenshot.WindowId != window.Id)
+            throw new InvalidOperationException("The screenshot_id belongs to a different window. Capture or snapshot the selected window again.");
+        if (screenshot.Bounds != window.Bounds)
+            throw new InvalidOperationException("The target window moved or resized after the screenshot. Capture or snapshot it again before using pixel coordinates.");
+        var maxAge = Math.Clamp(args.Int("max_age_ms", 15_000), 100, 120_000);
+        if (DateTimeOffset.UtcNow - screenshot.CapturedAt > TimeSpan.FromMilliseconds(maxAge))
+            throw new InvalidOperationException("The screenshot_id is stale. Capture or snapshot the target window again before using pixel coordinates.");
+        return screenshot;
+    }
+
+    private sealed record ScreenshotRecord(long WindowId, RectDto Bounds, DateTimeOffset CapturedAt, string Sha256);
 }

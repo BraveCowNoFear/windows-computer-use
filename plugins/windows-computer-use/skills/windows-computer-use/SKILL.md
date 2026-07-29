@@ -14,7 +14,7 @@ Choose the highest reliable layer for each step:
 1. Use an application API or browser DOM when already available.
 2. Use `inspect_window`, `find_controls`, `invoke`, and `enter_text` for UIA3 semantic control.
 3. Use `wait_for_ui` after transitions instead of fixed sleeps.
-4. Use `capture` plus `ocr` when semantic metadata is missing or incomplete.
+4. Use `snapshot` for one atomic UIA + image observation; use `capture` plus `ocr` when semantic metadata is missing or incomplete.
 5. Use `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback.
 
 Do not delegate to a dedicated UI worker. Drive this MCP directly in the active task.
@@ -26,7 +26,7 @@ Do not delegate to a dedicated UI worker. Drive this MCP directly in the active 
 3. Perform one state-changing action. Actions automatically activate the target, re-resolve stale elements, and re-observe afterward.
 4. Inspect the returned verification. Call `wait_for_ui` for dialogs, navigation, saves, progress, or any asynchronous transition.
 5. Reinspect after a major state change. Treat prior coordinates as stale; control ids can be retried because the broker re-locates their selector.
-6. Use `capture` and `ocr` before coordinate input when UIA cannot expose the target.
+6. When UIA cannot expose the target, call `snapshot` (and optionally `ocr`) before coordinate input, then pass its `screenshot_id` to `click`, `scroll`, or `drag`. If the broker reports it stale, moved, or resized, snapshot again instead of retrying blindly.
 7. Call `end_session` after the Windows phase to clear cached elements and close the control lifecycle.
 
 All coordinates are physical screen pixels. Coordinate tools are window-relative by default and support negative virtual-desktop origins. Unicode text entry does not require clipboard mutation.

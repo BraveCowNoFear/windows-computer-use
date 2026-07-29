@@ -16,7 +16,7 @@ MCP stdout contains only newline-delimited JSON-RPC. Broker diagnostics and MCP 
 
 ## Observation and identity
 
-`inspect_window` resolves an exact Win32 HWND and asks UIA3 for the root plus descendants. Every descriptor includes semantic properties, patterns, physical bounds, and a stable selector. The public control id hashes window id, AutomationId, control type, name, class, and duplicate ordinal.
+`inspect_window` resolves an exact Win32 HWND and asks UIA3 for the root plus descendants. Every descriptor includes semantic properties, patterns, physical bounds, and a stable selector. The public control id hashes window id, AutomationId, control type, name, class, and duplicate ordinal. `snapshot` returns that semantic observation together with one fresh image, screenshot id, capture time, and content hash.
 
 The broker caches the live `AutomationElement`. If it becomes stale, the broker scans the current tree and re-locates by semantic properties. A major navigation should still be followed by a fresh inspection because the application may intentionally replace the entire view.
 
@@ -27,10 +27,10 @@ State-changing actions run as:
 1. Resolve exactly one window.
 2. Acquire the shared `codex-ui-control.lock.json` lock.
 3. Restore and activate the target window.
-4. Resolve the semantic control or physical point.
+4. Resolve the semantic control or physical point. Coordinate actions may bind to a screenshot id; moved, resized, unknown, or expired observations are rejected.
 5. Use UIA3 Pattern first, then SendInput fallback.
 6. Wait a short settling interval or the explicit `wait_for_ui` condition.
-7. Re-observe the control or window and return verification metadata.
+7. Re-observe the control or window and return verification metadata. Pixel actions capture a post-action frame and return its id/hash for visual-difference inspection.
 8. Release the shared lock.
 
 The broker never logs raw text or screenshots. Its local JSONL audit stores timestamp, session, method, success, duration, and a SHA-256 hash of arguments.
@@ -38,14 +38,13 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 ## Native backends
 
 - UIA3: FlaUI 5.0 over Microsoft UI Automation.
-- Windows and capture: User32 window enumeration/activation, `PrintWindow(PW_RENDERFULLCONTENT)`, then physical screen copy.
+- Windows and capture: picker-free `Windows.Graphics.Capture` for HWNDs on Windows 10 1903+, then `PrintWindow(PW_RENDERFULLCONTENT)` and physical screen copy fallback.
 - Input: User32 `SendInput`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard.
 - OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
 
 ## Known gaps
 
-- Windows.Graphics.Capture is not yet the primary screenshot backend.
 - There is no local visual-language model or template/image matcher yet; OCR plus model-side image reasoning is the visual fallback.
 - Secure desktop and higher-integrity windows require matching Windows privileges.
 - The benchmark currently hard-gates the deterministic WinForms fixture. Real-app suites for Explorer, Settings, WeChat, Office, SolidWorks, Electron, multi-monitor, and mixed DPI are the next expansion.

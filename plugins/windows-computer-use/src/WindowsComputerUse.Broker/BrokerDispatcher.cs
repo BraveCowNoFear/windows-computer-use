@@ -58,6 +58,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "copy_text" => CopyText(args),
                 "wait_for_ui" => Wait(args),
                 "capture" => Capture(args),
+                "observe_desktop" => ObserveDesktop(args),
                 "snapshot" => Snapshot(args),
                 "ocr" => await OcrAsync(args, cancellationToken),
                 "find_text" => await FindTextAsync(args, cancellationToken),
@@ -100,7 +101,7 @@ public sealed class BrokerDispatcher : IDisposable
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
@@ -430,6 +431,18 @@ public sealed class BrokerDispatcher : IDisposable
         if (desktop && HasWindowSelector(args)) throw new ArgumentException("desktop=true cannot be combined with a window selector.");
         var window = desktop ? null : _windows.Resolve(args);
         return RememberCapture(window, _capture.Capture(window, args.String("path")));
+    }
+
+    private DesktopStateSnapshot ObserveDesktop(JsonElement args)
+    {
+        if (HasWindowSelector(args)) throw new ArgumentException("observe_desktop cannot be combined with a window selector.");
+        var capture = RememberCapture(null, _capture.Capture(null, args.String("path")));
+        var pointer = _input.PointerPosition();
+        return new DesktopStateSnapshot(
+            _displays.GetTopology(),
+            _windows.ListWindows(args.Bool("include_untitled")),
+            new PointerDescriptor(pointer.X, pointer.Y),
+            capture);
     }
 
     private WindowStateSnapshot Snapshot(JsonElement args)

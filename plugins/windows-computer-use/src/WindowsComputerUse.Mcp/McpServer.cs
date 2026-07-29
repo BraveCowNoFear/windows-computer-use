@@ -72,8 +72,8 @@ public sealed class McpServer : IAsyncDisposable
         {
             protocolVersion = requested ?? "2025-06-18",
             capabilities = new { tools = new { listChanged = false } },
-            serverInfo = new { name = "windows-computer-use", version = "0.19.0" },
-            instructions = "Full-control Windows MCP. Prefer UIA; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use wait_for_window for dialogs; bind visual pixels to their screenshot id; restore minimized windows before vision."
+            serverInfo = new { name = "windows-computer-use", version = "0.20.0" },
+            instructions = "Full-control Windows MCP. Start whole-screen work with observe_desktop; prefer UIA for a selected window; use desktop=true keyboard input only for the unchanged current foreground focus; use atomic paste_text/copy_text for reversible clipboard transfer; use wait_for_window for dialogs; bind visual pixels to their screenshot id; restore minimized windows before vision."
         };
     }
 
@@ -86,17 +86,38 @@ public sealed class McpServer : IAsyncDisposable
         try
         {
             var result = await _broker.CallAsync(name, arguments, cancellationToken);
-            if (name is "capture" or "snapshot")
+            if (name is "capture" or "snapshot" or "observe_desktop")
             {
                 var snapshot = name == "snapshot"
                     ? result.Deserialize<WindowStateSnapshot>(ProtocolJson.Options)
                     : null;
-                var capture = snapshot?.Capture ?? result.Deserialize<CaptureResult>(ProtocolJson.Options)
+                var desktop = name == "observe_desktop"
+                    ? result.Deserialize<DesktopStateSnapshot>(ProtocolJson.Options)
+                    : null;
+                var capture = snapshot?.Capture ?? desktop?.Capture ?? result.Deserialize<CaptureResult>(ProtocolJson.Options)
                     ?? throw new InvalidDataException("Capture result was empty.");
-                var metadata = name == "snapshot"
+                var metadata = snapshot is not null
                     ? JsonSerializer.Serialize(new
                     {
-                        snapshot!.Inspection,
+                        snapshot.Inspection,
+                        Capture = new
+                        {
+                            capture.Id,
+                            capture.Width,
+                            capture.Height,
+                            capture.Bounds,
+                            capture.Backend,
+                            capture.CapturedAt,
+                            capture.Sha256,
+                            capture.Path
+                        }
+                    }, ProtocolJson.Options)
+                    : desktop is not null
+                    ? JsonSerializer.Serialize(new
+                    {
+                        desktop.Topology,
+                        desktop.Windows,
+                        desktop.Pointer,
                         Capture = new
                         {
                             capture.Id,

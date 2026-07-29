@@ -129,6 +129,17 @@ public sealed record WindowStateSnapshot(
     WindowInspection Inspection,
     CaptureResult Capture);
 
+public sealed record PointerDescriptor(
+    int X,
+    int Y,
+    string CoordinateSpace = "physical-screen-pixels");
+
+public sealed record DesktopStateSnapshot(
+    DisplayTopology Topology,
+    IReadOnlyList<WindowDescriptor> Windows,
+    PointerDescriptor Pointer,
+    CaptureResult Capture);
+
 public sealed record ControlChange(
     string Kind,
     string Id,

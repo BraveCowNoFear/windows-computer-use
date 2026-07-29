@@ -47,7 +47,7 @@ function Invoke-WcuTool {
     param([string]$Name, [hashtable]$Arguments = @{})
     $result = Invoke-McpRequest -Method 'tools/call' -Params @{ name = $Name; arguments = $Arguments }
     if ($result.isError) { throw "Stage $script:stage; tool $Name failed: $($result.content[0].text)" }
-    if ($Name -in @('capture', 'snapshot')) { return $result }
+    if ($Name -in @('capture', 'snapshot', 'observe_desktop')) { return $result }
     return ($result.content[0].text | ConvertFrom-Json)
 }
 
@@ -79,11 +79,37 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 35) { throw "Expected 35 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 36) { throw "Expected 36 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
         throw 'Physical display topology or DPI metadata is incomplete.'
+    }
+
+    $script:stage = 'desktop-observation'
+    $desktopObservation = Invoke-WcuTool -Name 'observe_desktop'
+    if (@($desktopObservation.content).Count -ne 2 -or $desktopObservation.content[1].type -ne 'image' -or $desktopObservation.content[1].mimeType -ne 'image/png' -or -not $desktopObservation.content[1].data) {
+        throw 'Atomic desktop observation did not return text metadata plus one PNG image.'
+    }
+    $desktopObservationMeta = $desktopObservation.content[0].text | ConvertFrom-Json
+    $observedTarget = @($desktopObservationMeta.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
+    if ($observedTarget.Count -ne 1 -or
+        @($desktopObservationMeta.topology.displays).Count -lt 1 -or
+        $desktopObservationMeta.capture.width -ne $desktopObservationMeta.topology.virtualDesktop.width -or
+        $desktopObservationMeta.capture.height -ne $desktopObservationMeta.topology.virtualDesktop.height -or
+        -not $desktopObservationMeta.capture.id -or
+        $desktopObservationMeta.pointer.coordinateSpace -ne 'physical-screen-pixels' -or
+        $desktopObservationMeta.pointer.x -lt $desktopObservationMeta.topology.virtualDesktop.x -or
+        $desktopObservationMeta.pointer.y -lt $desktopObservationMeta.topology.virtualDesktop.y -or
+        $desktopObservationMeta.pointer.x -ge ($desktopObservationMeta.topology.virtualDesktop.x + $desktopObservationMeta.topology.virtualDesktop.width) -or
+        $desktopObservationMeta.pointer.y -ge ($desktopObservationMeta.topology.virtualDesktop.y + $desktopObservationMeta.topology.virtualDesktop.height)) {
+        throw "Atomic desktop observation metadata was incomplete: $($desktopObservationMeta | ConvertTo-Json -Depth 5 -Compress)"
+    }
+    $observationMoveX = [int]$observedTarget[0].bounds.x + 20 - [int]$desktopObservationMeta.capture.bounds.x
+    $observationMoveY = [int]$observedTarget[0].bounds.y + 20 - [int]$desktopObservationMeta.capture.bounds.y
+    $observationMove = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = $observationMoveX; y = $observationMoveY; coordinate_space = 'screenshot'; screenshot_id = $desktopObservationMeta.capture.id }
+    if (-not $observationMove.ok -or $observationMove.coordinate_space -ne 'screenshot') {
+        throw 'Atomic desktop observation screenshot id was not actionable.'
     }
 
     $windows = Invoke-WcuTool -Name 'list_windows'
@@ -612,6 +638,9 @@ try {
         protocol = $initialize.protocolVersion
         tools = @($tools.tools).Count
         displays = @($displayInfo.displays).Count
+        atomic_desktop_observation = $true
+        desktop_observation_windows = @($desktopObservationMeta.windows).Count
+        desktop_observation_screenshot_action = $observationMove.ok
         primary_scale_percent = $displayInfo.displays[0].scalePercent
         virtual_desktop = "$($displayInfo.virtualDesktop.x),$($displayInfo.virtualDesktop.y),$($displayInfo.virtualDesktop.width),$($displayInfo.virtualDesktop.height)"
         window_id = $windowId

@@ -4,6 +4,8 @@
 
 Every window-scoped tool accepts `window_id`, `title`, or `app`. Prefer the exact numeric `window_id` returned by `list_windows`. Title and app substrings must resolve to exactly one window or the broker rejects the action.
 
+`observe_desktop` is the whole-screen starting observation. It returns one image plus `topology`, `windows`, `pointer`, and `capture` metadata under a single read-side UI lock. The capture id is a standard virtual-desktop screenshot id: pass its image-relative coordinates to pointer/mouse tools with `coordinate_space=screenshot` and no window selector. `include_untitled=true` expands the top-level window list without changing the image.
+
 Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, `control_type`, `class_name`, `enabled_only`, and `scan_limit`. Prefer `control_id`; use query fields to discover or recover.
 
 ## Tools

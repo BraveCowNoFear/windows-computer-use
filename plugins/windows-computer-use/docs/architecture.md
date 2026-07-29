@@ -24,6 +24,8 @@ The broker caches the live `AutomationElement`. If it becomes stale, the broker 
 
 `find_controls` and `wait_for_ui` use selector-targeted traversal rather than building a fully state-enriched tree on every poll. Non-matching elements read only identity, layout, focus, and availability; full Pattern state is read only for matched elements, and exact control-id selectors reuse a validated live-element cache. Waits re-resolve the window on every poll, enforce the requested deadline when deciding whether a late observation may match, and support Value, selection, toggle, expand/collapse, and read-only predicates.
 
+`observe_desktop` acquires the same read-side UI lock once and returns one virtual-screen capture together with the current display topology, visible top-level window descriptors, and physical pointer position. The capture is cached as a normal desktop screenshot record, so its id enters the existing age/topology validation path for screenshot-space input without an extra observation call. It does not activate a window.
+
 ## Action pipeline
 
 State-changing actions run as:

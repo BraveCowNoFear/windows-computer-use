@@ -142,6 +142,13 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Desktop key actions report the foreground HWND before/after, while cross-action held-key tracking and Broker-restart recovery remain shared with window mode. `key_up` can release globally even when Windows temporarily exposes no foreground HWND.
 - Twenty-six unit tests gate all four desktop schemas. Real MCP E2E focuses the isolated edit once, then proves selector-free Ctrl+A, Unicode text, Shift down/up application events, foreground preservation, selector-conflict rejection, and final system input cleanup.
 
+### v0.20.0 — atomic actionable desktop observation
+
+- Added `observe_desktop`, making 36 MCP tools. One read-only locked call now returns a full virtual-desktop PNG with display topology, visible top-level windows, current physical pointer position, and a cached actionable screenshot id without activating any window.
+- MCP emits the observation as compact structured text plus one image content block, omitting duplicate base64 from metadata. The desktop screenshot record reuses existing age/display-topology validation and can directly drive screenshot-space pointer, click, scroll, and drag operations.
+- Twenty-seven unit tests gate tool uniqueness and read-only schema. Real E2E receives one 2560x1600 PNG, one 150%-scaled display, twelve visible windows including the isolated target, and a physical pointer descriptor, then uses that exact observation id for a verified screenshot-space pointer move.
+- The Broker fault-injection harness now allows 25 seconds for an MCP response because production recovery intentionally has a 15-second restart/input-release budget. Its injected call deadline is 2000 ms against a deterministic 5000 ms native wait: a former 250 ms setting could incorrectly time out normal setup input under combined-test load, while a 5-second response reader could reject a valid slow recovery.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

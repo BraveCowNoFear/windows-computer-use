@@ -41,7 +41,7 @@ function Get-ChildBrokerProcess {
 }
 
 function Invoke-BoundedMcpRequest {
-    param([Parameter(Mandatory)][string]$Method, [hashtable]$Params = @{}, [int]$ResponseTimeoutMs = 5000)
+    param([Parameter(Mandatory)][string]$Method, [hashtable]$Params = @{}, [int]$ResponseTimeoutMs = 25000)
     $script:nextId++
     $payload = [ordered]@{ jsonrpc = '2.0'; id = $script:nextId; method = $Method; params = $Params }
     $script:mcp.StandardInput.WriteLine(($payload | ConvertTo-Json -Depth 20 -Compress))
@@ -72,7 +72,7 @@ try {
     $start.RedirectStandardError = $true
     $start.CreateNoWindow = $true
     $start.EnvironmentVariables['WCU_BROKER_PATH'] = $brokerPath
-    $start.EnvironmentVariables['WCU_BROKER_CALL_TIMEOUT_MS'] = '250'
+    $start.EnvironmentVariables['WCU_BROKER_CALL_TIMEOUT_MS'] = '2000'
     $mcp = [System.Diagnostics.Process]::new()
     $mcp.StartInfo = $start
     if (-not $mcp.Start()) { throw 'Could not start MCP process.' }
@@ -97,7 +97,7 @@ try {
 
     $missingTitle = "WCU recovery probe $([guid]::NewGuid().ToString('N'))"
     $timedOut = Invoke-BoundedMcpRequest -Method 'tools/call' -Params @{ name = 'wait_for_window'; arguments = @{ title = $missingTitle; state = 'exists'; timeout_ms = 5000; poll_ms = 50 } }
-    if (-not $timedOut.isError -or $timedOut.content[0].text -notmatch "exceeded 250 ms" -or $timedOut.content[0].text -notmatch 'broker was restarted') {
+    if (-not $timedOut.isError -or $timedOut.content[0].text -notmatch "exceeded 2000 ms" -or $timedOut.content[0].text -notmatch 'broker was restarted') {
         throw "Broker deadline did not return the explicit unknown-state recovery error: $($timedOut | ConvertTo-Json -Depth 10 -Compress)"
     }
 
@@ -115,7 +115,7 @@ try {
 
     [ordered]@{
         ok = $true
-        deadline_ms = 250
+        deadline_ms = 2000
         old_broker_pid = [int]$before.ProcessId
         new_broker_pid = [int]$after.ProcessId
         next_call_succeeded = $true

@@ -23,7 +23,7 @@ Do not delegate to a dedicated UI worker. Drive this MCP directly in the active 
 
 ## Workflow
 
-1. For a window-scoped task, call `list_windows`, select exactly one returned window, and keep its numeric `window_id`; never invent a window object or guess a handle. For a whole-desktop task, call `display_info` and take a fresh `desktop=true` visual observation instead.
+1. For a window-scoped task, call `list_windows`, select exactly one returned window, and keep its numeric `window_id`; never invent a window object or guess a handle. For a whole-desktop task, start with `observe_desktop` so one call supplies the image, display topology, visible windows, pointer, and actionable screenshot id.
 2. Call `display_info` before physical-pixel work when monitor origin, DPI scaling, or cross-display placement matters.
 3. Call `inspect_window` or `find_controls`. Prefer a returned stable `control_id` over coordinates.
 4. Perform one state-changing action. Use `invoke` for the default/primary action and `perform_secondary_action` for explicit focus, selection membership, toggle, expand/collapse, or semantic scroll. Semantic/input actions activate the target, re-resolve stale elements, and re-observe afterward.

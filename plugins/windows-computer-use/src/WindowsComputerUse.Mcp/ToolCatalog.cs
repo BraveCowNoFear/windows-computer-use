@@ -34,6 +34,8 @@ public static class ToolCatalog
             QueryProps(("control_id", S("string", "Stable control id.")), ("state", Enum("exists", "absent", "visible", "hidden", "enabled", "focused", "value_equals", "value_contains", "selected", "unselected", "toggle_on", "toggle_off", "toggle_indeterminate", "expanded", "collapsed", "readonly", "editable")), ("expected_value", S("string", "Required for value_equals/value_contains.")), ("case_sensitive", S("boolean", "Use ordinal case-sensitive Value comparison.")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
         Tool("capture", "Capture a window through Windows Graphics Capture with fallback, or capture the virtual desktop, and return PNG content plus an actionable screenshot id.",
             WindowProps(("desktop", S("boolean", "Capture the full virtual desktop instead of one window.")), ("path", S("string", "Optional absolute output path.")))),
+        Tool("observe_desktop", "Return one actionable virtual-desktop PNG together with display topology, visible top-level windows, and the current pointer position without activating a window.",
+            Props(("include_untitled", S("boolean", "Include visible titleless top-level windows.")), ("path", S("string", "Optional absolute output path.")))),
         Tool("snapshot", "Return one atomic computer-use observation containing the UIA semantic state and a fresh window image with screenshot id, timestamp, and content hash.",
             WindowProps(("limit", S("integer", "Maximum UIA elements, default 400.")), ("path", S("string", "Optional absolute output path.")))),
         Tool("ocr", "Run Windows.Media.Ocr on a window, virtual desktop, or existing PNG; fresh captures include actionable screenshot coordinates.",
@@ -77,7 +79,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "pointer_position" or "wait_for_window" or "inspect_window" or "observe_changes" or "find_controls" or "wait_for_ui" or "capture" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

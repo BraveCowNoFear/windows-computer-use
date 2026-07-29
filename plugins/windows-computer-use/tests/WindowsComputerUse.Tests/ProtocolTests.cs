@@ -41,12 +41,13 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(35, ToolCatalog.All.Count);
+        Assert.Equal(36, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("inspect_window", json);
         Assert.Contains("snapshot", json);
+        Assert.Contains("observe_desktop", json);
         Assert.Contains("observe_changes", json);
         Assert.Contains("display_info", json);
         Assert.Contains("find_text", json);
@@ -67,6 +68,17 @@ public sealed class ProtocolTests
         Assert.Contains("restore_clipboard", json);
         Assert.Contains("end_session", json);
     }
+
+    [Fact]
+    public void ObserveDesktop_AdvertisesAtomicReadOnlyDesktopState()
+    {
+        var tool = Assert.Single(ToolCatalog.All, candidate => candidate.Name == "observe_desktop");
+        var schema = JsonSerializer.SerializeToElement(tool.InputSchema, ProtocolJson.Options);
+        Assert.True(schema.GetProperty("properties").TryGetProperty("include_untitled", out _));
+        var annotations = JsonSerializer.SerializeToElement(tool.Annotations, ProtocolJson.Options);
+        Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
 
     [Fact]
     public void ClipboardTools_AdvertiseReversibleNativeTextAccess()

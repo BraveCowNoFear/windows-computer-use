@@ -202,6 +202,12 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Exact and bounded multi-scale matches retain the original screenshot id/hash/cropped physical bounds plus image/screen match bounds and center, so a result remains directly actionable against precisely the model-observed frame.
 - Thirty-three unit tests gate the added schema. Real WGC E2E extracts a button template and padded search region from one saved window frame, rejects a conflicting selector, proves exact and 1.15-1.35 multi-scale searches return the region id/hash/bounds, clicks through the same region id, and completes all prior gates.
 
+### v0.29.0 — localized exact screenshot differences
+
+- Added read-only `compare_screenshots`, making 42 MCP tools. Both fresh cached ids must share window/desktop identity, geometry/topology, full-source bounds, capture bounds, and private crop identity before decoded 32-bit BGRA pixels are compared; the tool never captures, activates, or sends input.
+- Results include exact changed-pixel count/fraction, maximum channel delta, exact image/physical-screen union bounds, and four-neighbor connected tile regions. `channel_threshold` defaults to exact zero; tile size and maximum output regions are bounded, and omitted region count is explicit.
+- Thirty-seven unit tests cover protocol, identical frames, exact disjoint pixel counts/bounds, negative physical origins, region grouping, and inclusive channel-threshold boundaries. Real WGC E2E compares the delayed Toggle baseline/result 172x40 crops, localizes 396 changed pixels into one region on the development run, verifies physical-bound translation, and completes every prior gate.
+
 ## Current boundaries and next work
 
 - Windows OCR provides line/word grounding and bounded multi-scale local template matching covers known images. Novel non-text interpretation, rotation variation, and ambiguous scenes still depend on the calling model.

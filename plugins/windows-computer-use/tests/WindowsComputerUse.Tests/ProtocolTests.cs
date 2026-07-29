@@ -41,7 +41,7 @@ public sealed class ProtocolTests
     [Fact]
     public void ToolCatalog_IsUniqueCompleteAndFreeOfPlaceholders()
     {
-        Assert.Equal(41, ToolCatalog.All.Count);
+        Assert.Equal(42, ToolCatalog.All.Count);
         Assert.Equal(ToolCatalog.All.Count, ToolCatalog.All.Select(tool => tool.Name).Distinct().Count());
         var json = JsonSerializer.Serialize(ToolCatalog.All, ProtocolJson.Options);
         Assert.DoesNotContain("TODO", json, StringComparison.OrdinalIgnoreCase);
@@ -50,6 +50,7 @@ public sealed class ProtocolTests
         Assert.Contains("observe_desktop", json);
         Assert.Contains("wait_for_visual_change", json);
         Assert.Contains("wait_for_visual_stable", json);
+        Assert.Contains("compare_screenshots", json);
         Assert.Contains("capture_region", json);
         Assert.Contains("observe_changes", json);
         Assert.Contains("display_info", json);
@@ -215,6 +216,24 @@ public sealed class ProtocolTests
         Assert.True(properties.TryGetProperty("max_age_ms", out _));
 
         var annotations = JsonSerializer.SerializeToElement(capture.Annotations, ProtocolJson.Options);
+        Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
+    }
+
+    [Fact]
+    public void CompareScreenshots_RequiresTwoIdsAndIsReadOnly()
+    {
+        var compare = Assert.Single(ToolCatalog.All, tool => tool.Name == "compare_screenshots");
+        var schema = JsonSerializer.SerializeToElement(compare.InputSchema, ProtocolJson.Options);
+        var required = schema.GetProperty("required").EnumerateArray().Select(item => item.GetString()).ToArray();
+        Assert.Contains("before_screenshot_id", required);
+        Assert.Contains("after_screenshot_id", required);
+        var properties = schema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("channel_threshold", out _));
+        Assert.True(properties.TryGetProperty("tile_size", out _));
+        Assert.True(properties.TryGetProperty("max_regions", out _));
+        Assert.True(properties.TryGetProperty("max_age_ms", out _));
+
+        var annotations = JsonSerializer.SerializeToElement(compare.Annotations, ProtocolJson.Options);
         Assert.True(annotations.GetProperty("readOnlyHint").GetBoolean());
     }
 

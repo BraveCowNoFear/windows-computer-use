@@ -79,7 +79,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -ne 41) { throw "Expected 41 MCP tools, found $(@($tools.tools).Count)." }
+    if (@($tools.tools).Count -ne 42) { throw "Expected 42 MCP tools, found $(@($tools.tools).Count)." }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -438,6 +438,16 @@ try {
     }
     if ($visualChangeMeta.previousScreenshotId -ne $visualBaselineMeta.id -or $visualChangeMeta.previousSha256 -ne $visualBaselineMeta.sha256 -or $visualChangeMeta.capture.id -eq $visualBaselineMeta.id -or $visualChangeMeta.capture.sha256 -eq $visualBaselineMeta.sha256) {
         throw 'Visual-change wait did not bind its result to the source screenshot and a distinct content hash.'
+    }
+    $visualDiff = Invoke-WcuTool -Name 'compare_screenshots' -Arguments @{ before_screenshot_id = $visualBaselineMeta.id; after_screenshot_id = $visualChangeMeta.capture.id; channel_threshold = 0; tile_size = 8; max_regions = 20 }
+    if (-not $visualDiff.ok -or -not $visualDiff.changed -or $visualDiff.changedPixels -lt 1 -or $visualDiff.changedFraction -le 0 -or
+        $visualDiff.beforeScreenshotId -ne $visualBaselineMeta.id -or $visualDiff.afterScreenshotId -ne $visualChangeMeta.capture.id -or
+        $visualDiff.changedImageBounds.x -lt 0 -or $visualDiff.changedImageBounds.y -lt 0 -or
+        $visualDiff.changedImageBounds.right -gt $visualBaselineMeta.width -or $visualDiff.changedImageBounds.bottom -gt $visualBaselineMeta.height -or
+        $visualDiff.changedScreenBounds.x -ne ($visualBaselineMeta.bounds.x + $visualDiff.changedImageBounds.x) -or
+        $visualDiff.changedScreenBounds.y -ne ($visualBaselineMeta.bounds.y + $visualDiff.changedImageBounds.y) -or
+        $visualDiff.regionCount -lt 1 -or @($visualDiff.regions).Count -lt 1) {
+        throw "Exact screenshot comparison did not localize the visual transition: $($visualDiff | ConvertTo-Json -Depth 8 -Compress)"
     }
     $visualPointer = Invoke-WcuTool -Name 'move_pointer' -Arguments @{ x = 10; y = 10; coordinate_space = 'screenshot'; screenshot_id = $visualChangeMeta.capture.id }
     if (-not $visualPointer.ok -or $visualPointer.screen_position.x -ne ($visualChangeMeta.capture.bounds.x + 10) -or $visualPointer.screen_position.y -ne ($visualChangeMeta.capture.bounds.y + 10)) { throw 'The visual-change region screenshot was not cached as actionable.' }
@@ -871,6 +881,8 @@ try {
         visual_change_screenshot = $visualChangeMeta.capture.id
         visual_change_region = "$($visualChangeMeta.capture.width)x$($visualChangeMeta.capture.height)"
         visual_change_screenshot_action = $visualPointer.ok
+        visual_diff_changed_pixels = $visualDiff.changedPixels
+        visual_diff_regions = $visualDiff.regionCount
         visual_change_stale_rejected = $visualStaleRejected
         visual_stability_wait = $visualStableMeta.stable
         visual_stability_timeout = -not $visualUnstableMeta.stable

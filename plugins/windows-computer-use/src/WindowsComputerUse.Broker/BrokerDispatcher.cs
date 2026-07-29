@@ -16,6 +16,7 @@ public sealed class BrokerDispatcher : IDisposable
     private readonly DisplayService _displays = new();
     private readonly OcrService _ocr = new();
     private readonly ImageMatcherService _imageMatcher = new();
+    private readonly VisualDiffService _visualDiff = new();
     private readonly ClipboardService _clipboard = new();
     private readonly UiaService _uia;
     private readonly AuditLogger _audit = new();
@@ -63,6 +64,7 @@ public sealed class BrokerDispatcher : IDisposable
                 "wait_for_ui" => Wait(args),
                 "wait_for_visual_change" => await WaitForVisualChangeAsync(args, cancellationToken),
                 "wait_for_visual_stable" => await WaitForVisualStableAsync(args, cancellationToken),
+                "compare_screenshots" => CompareScreenshots(args),
                 "capture" => Capture(args),
                 "capture_region" => CaptureRegion(args),
                 "observe_desktop" => ObserveDesktop(args),
@@ -109,7 +111,7 @@ public sealed class BrokerDispatcher : IDisposable
     }
 
     private static bool NeedsUiLock(string method) => method is
-        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "wait_for_visual_change" or "wait_for_visual_stable" or "capture" or "capture_region" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
+        "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "paste_text" or "copy_text" or "wait_for_visual_change" or "wait_for_visual_stable" or "compare_screenshots" or "capture" or "capture_region" or "observe_desktop" or "snapshot" or "ocr" or "find_text" or "find_image" or "read_clipboard_text" or "write_clipboard_text" or "restore_clipboard" or "window_from_point" or
         "move_pointer" or "click" or "mouse_down" or "mouse_up" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "set_window_bounds" or "activate_window" or "end_session" or "recover_input_state";
 
     private object Launch(JsonElement args)
@@ -504,6 +506,28 @@ public sealed class BrokerDispatcher : IDisposable
 
             await Task.Delay((int)Math.Min(poll, timeout - elapsed), cancellationToken);
         }
+    }
+
+    private VisualDiffResult CompareScreenshots(JsonElement args)
+    {
+        var beforeId = args.String("before_screenshot_id")
+            ?? throw new ArgumentException("before_screenshot_id is required");
+        var afterId = args.String("after_screenshot_id")
+            ?? throw new ArgumentException("after_screenshot_id is required");
+        var before = ResolveCachedScreenshot(args, beforeId, "visual comparison", out _);
+        var after = ResolveCachedScreenshot(args, afterId, "visual comparison", out _);
+        if (before.WindowId != after.WindowId ||
+            before.WindowBounds != after.WindowBounds ||
+            before.SourceBounds != after.SourceBounds ||
+            before.CaptureBounds != after.CaptureBounds ||
+            before.ImageRegion != after.ImageRegion)
+            throw new InvalidOperationException("Screenshots must belong to the same window or desktop source and the same image region for visual comparison.");
+        return _visualDiff.Compare(
+            before.Capture,
+            after.Capture,
+            args.Int("channel_threshold"),
+            args.Int("tile_size", 32),
+            args.Int("max_regions", 50));
     }
 
     private WindowDescriptor? ResolveVisualSource(ScreenshotRecord source)
@@ -1192,6 +1216,11 @@ public sealed class BrokerDispatcher : IDisposable
     {
         var screenshotId = args.String("screenshot_id")
             ?? throw new ArgumentException("screenshot_id is required");
+        return ResolveCachedScreenshot(args, screenshotId, operation, out window);
+    }
+
+    private ScreenshotRecord ResolveCachedScreenshot(JsonElement args, string screenshotId, string operation, out WindowDescriptor? window)
+    {
         if (args.Bool("desktop") || HasWindowSelector(args))
             throw new ArgumentException($"screenshot_id cannot be combined with desktop=true or a window selector. The cached screenshot is the authoritative source for {operation}.");
         if (!_screenshots.TryGetValue(screenshotId, out var source))

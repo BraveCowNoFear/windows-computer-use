@@ -1,0 +1,44 @@
+{
+  "name": "windows-computer-use",
+  "version": "0.1.0",
+  "description": "Full-control local Windows automation for Codex through UIA3, SendInput, capture, and native OCR.",
+  "author": {
+    "name": "BraveCowNoFear",
+    "url": "https://github.com/BraveCowNoFear"
+  },
+  "homepage": "https://github.com/BraveCowNoFear/windows-computer-use",
+  "repository": "https://github.com/BraveCowNoFear/windows-computer-use",
+  "license": "MIT",
+  "keywords": [
+    "computer-use",
+    "windows",
+    "uia3",
+    "desktop-automation",
+    "mcp",
+    "sendinput"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Windows Computer Use",
+    "shortDescription": "Native full-control automation for Windows apps",
+    "longDescription": "Control Windows applications through semantic UI Automation 3 first, then native OCR and physical-pixel mouse/keyboard fallback. The local plugin adds no app allowlist or action confirmation layer of its own and automatically re-observes state after actions.",
+    "developerName": "BraveCowNoFear",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/BraveCowNoFear/windows-computer-use",
+    "defaultPrompt": [
+      "Open an app and complete this Windows task",
+      "Inspect this window and operate it semantically",
+      "Use the mouse and keyboard to finish this workflow"
+    ],
+    "brandColor": "#0F766E",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/logo.svg",
+    "screenshots": []
+  }
+}

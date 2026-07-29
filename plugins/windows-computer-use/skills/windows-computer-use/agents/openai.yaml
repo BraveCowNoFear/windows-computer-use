@@ -1,0 +1,4 @@
+interface:
+  display_name: "Windows Computer Use"
+  short_description: "Native semantic and visual Windows control"
+  default_prompt: "Use $windows-computer-use to control this Windows app directly through the local full-control MCP."

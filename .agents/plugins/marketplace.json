@@ -1,0 +1,20 @@
+{
+  "name": "brave-cow-windows-tools",
+  "interface": {
+    "displayName": "Brave Cow Windows Tools"
+  },
+  "plugins": [
+    {
+      "name": "windows-computer-use",
+      "source": {
+        "source": "local",
+        "path": "./plugins/windows-computer-use"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

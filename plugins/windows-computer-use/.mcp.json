@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "windowsComputerUse": {
+      "title": "Windows Computer Use",
+      "description": "Full-control local Windows UI Automation, mouse, keyboard, capture, and OCR.",
+      "cwd": ".",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "./scripts/run-mcp.ps1"
+      ]
+    }
+  }
+}

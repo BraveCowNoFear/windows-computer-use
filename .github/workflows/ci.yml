@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-unit-test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: plugins/windows-computer-use
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        run: dotnet restore WindowsComputerUse.sln
+      - name: Format
+        run: dotnet format WindowsComputerUse.sln --verify-no-changes --no-restore
+      - name: Build
+        run: dotnet build WindowsComputerUse.sln -c Release --no-restore --warnaserror
+      - name: Unit tests
+        run: dotnet test WindowsComputerUse.sln -c Release --no-build
+      - name: Dependency audit
+        run: dotnet list WindowsComputerUse.sln package --vulnerable --include-transitive

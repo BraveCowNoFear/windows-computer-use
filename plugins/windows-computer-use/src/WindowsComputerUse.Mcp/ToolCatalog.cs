@@ -1,0 +1,76 @@
+using WindowsComputerUse.Contracts;
+
+namespace WindowsComputerUse.Mcp;
+
+public static class ToolCatalog
+{
+    public static IReadOnlyList<ToolDefinition> All { get; } =
+    [
+        Tool("list_windows", "List visible top-level Windows windows. Always use a returned window_id instead of guessing a target.", Props()),
+        Tool("launch_app", "Launch any app, executable, file, URI, or registered shell target in full-control mode.",
+            Props(("app", S("string", "Executable path, app id, file, or URI.")), ("arguments", S("string", "Optional command-line arguments.")), ("wait_ms", S("integer", "Wait for initial UI readiness."))), ["app"]),
+        Tool("inspect_window", "Inspect one window through UI Automation 3 and return a semantic control tree with stable control ids.",
+            WindowProps(("limit", S("integer", "Maximum UIA elements, default 400.")))),
+        Tool("find_controls", "Find semantic controls by accessible name, AutomationId, control type, class, or enabled state.",
+            QueryProps(("limit", S("integer", "Maximum returned controls, default 50.")))),
+        Tool("invoke", "Invoke a semantic control. Stale ids are automatically re-resolved; unsupported patterns fall back to a center click.",
+            QueryProps(("control_id", S("string", "Stable id from inspect_window or find_controls.")))),
+        Tool("enter_text", "Set or type Unicode text into a semantic control, preferring UIA ValuePattern and falling back to SendInput.",
+            QueryProps(("control_id", S("string", "Stable control id.")), ("text", S("string", "Text to enter.")), ("append", S("boolean", "Append instead of replacing."))), ["text"]),
+        Tool("wait_for_ui", "Poll UIA until a control exists, disappears, becomes visible, enabled, or focused.",
+            QueryProps(("state", Enum("exists", "absent", "visible", "hidden", "enabled", "focused")), ("timeout_ms", S("integer", "Timeout up to 120000 ms.")), ("poll_ms", S("integer", "Polling interval.")))),
+        Tool("capture", "Capture a window (including many occluded windows through PrintWindow) or the virtual desktop and return PNG image content.",
+            WindowProps(("desktop", S("boolean", "Capture the full virtual desktop instead of one window.")), ("path", S("string", "Optional absolute output path.")))),
+        Tool("ocr", "Run Windows.Media.Ocr on a window, desktop, or existing PNG using installed Windows language packs.",
+            WindowProps(("desktop", S("boolean", "OCR the virtual desktop.")), ("path", S("string", "Existing image path; when omitted a fresh capture is used.")), ("language", S("string", "Optional BCP-47 language tag.")))),
+        Tool("click", "Click physical pixels in a selected window using SendInput. Coordinates are window-relative by default.",
+            WindowProps(("x", S("integer", "X coordinate.")), ("y", S("integer", "Y coordinate.")), ("relative", S("boolean", "Treat x/y as window-relative, default true.")), ("button", Enum("left", "right", "middle")), ("count", S("integer", "Click count 1-4."))), ["x", "y"]),
+        Tool("press_key", "Press a + separated key chord in a selected window, such as ctrl+s or alt+f4.",
+            WindowProps(("key", S("string", "Key or chord."))), ["key"]),
+        Tool("type_text", "Type arbitrary Unicode text into the currently focused control of a selected window with SendInput.",
+            WindowProps(("text", S("string", "Text to type."))), ["text"]),
+        Tool("scroll", "Scroll vertically or horizontally at a point in a selected window using SendInput.",
+            WindowProps(("x", S("integer", "X coordinate, window center by default.")), ("y", S("integer", "Y coordinate, window center by default.")), ("relative", S("boolean", "Window-relative coordinates, default true.")), ("vertical", S("integer", "Wheel notches; positive up, negative down.")), ("horizontal", S("integer", "Wheel notches; positive right, negative left.")))),
+        Tool("drag", "Drag with the left mouse button between two points in a selected window.",
+            WindowProps(("from_x", S("integer", "Start X.")), ("from_y", S("integer", "Start Y.")), ("to_x", S("integer", "End X.")), ("to_y", S("integer", "End Y.")), ("relative", S("boolean", "Window-relative coordinates, default true.")), ("duration_ms", S("integer", "Drag duration."))), ["from_x", "from_y", "to_x", "to_y"]),
+        Tool("activate_window", "Restore and bring exactly one selected window to the foreground.", WindowProps()),
+        Tool("end_session", "Clear cached UIA elements and explicitly end the current control session.", Props())
+    ];
+
+    private static ToolDefinition Tool(string name, string description, object properties, string[]? required = null)
+    {
+        var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
+        if (required is { Length: > 0 }) schema["required"] = required;
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "inspect_window" or "find_controls" or "capture" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
+    }
+
+    private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)
+    {
+        var properties = Props(
+            ("window_id", S("integer", "Exact window id returned by list_windows.")),
+            ("title", S("string", "Title substring; only use when it resolves uniquely.")),
+            ("app", S("string", "App/process substring; only use when it resolves uniquely.")));
+        foreach (var (name, schema) in extra) properties[name] = schema;
+        return properties;
+    }
+
+    private static Dictionary<string, object> QueryProps(params (string Name, object Schema)[] extra)
+    {
+        var properties = WindowProps(
+            ("name", S("string", "Exact accessible name.")),
+            ("name_contains", S("string", "Accessible name substring.")),
+            ("automation_id", S("string", "Exact UIA AutomationId.")),
+            ("control_type", S("string", "UIA control type, such as Button or Edit.")),
+            ("class_name", S("string", "Native/UI class substring.")),
+            ("enabled_only", S("boolean", "Only match enabled controls.")),
+            ("scan_limit", S("integer", "Maximum UIA elements to scan.")));
+        foreach (var (name, schema) in extra) properties[name] = schema;
+        return properties;
+    }
+
+    private static Dictionary<string, object> Props(params (string Name, object Schema)[] values) =>
+        values.ToDictionary(item => item.Name, item => item.Schema, StringComparer.Ordinal);
+
+    private static object S(string type, string description) => new { type, description };
+    private static object Enum(params string[] values) => new { type = "string", @enum = values };
+}

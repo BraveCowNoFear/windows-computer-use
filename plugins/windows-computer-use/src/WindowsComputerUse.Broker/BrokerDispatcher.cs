@@ -62,6 +62,8 @@ public sealed class BrokerDispatcher : IDisposable
                 "move_pointer" => MovePointer(args),
                 "click" => Click(args),
                 "press_key" => PressKey(args),
+                "key_down" => KeyDown(args),
+                "key_up" => KeyUp(args),
                 "type_text" => TypeText(args),
                 "scroll" => Scroll(args),
                 "drag" => Drag(args),
@@ -80,11 +82,15 @@ public sealed class BrokerDispatcher : IDisposable
         }
     }
 
-    public void Dispose() => _uia.Dispose();
+    public void Dispose()
+    {
+        try { _input.ReleaseAllKeys(); } catch { }
+        _uia.Dispose();
+    }
 
     private static bool NeedsUiLock(string method) => method is
         "inspect_window" or "observe_changes" or "find_controls" or "invoke" or "perform_secondary_action" or "enter_text" or "capture" or "snapshot" or "ocr" or "find_text" or "find_image" or
-        "move_pointer" or "click" or "press_key" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
+        "move_pointer" or "click" or "press_key" or "key_down" or "key_up" or "type_text" or "scroll" or "drag" or "set_window_state" or "activate_window";
 
     private object Launch(JsonElement args)
     {
@@ -405,10 +411,35 @@ public sealed class BrokerDispatcher : IDisposable
     {
         var key = args.String("key") ?? throw new ArgumentException("key is required");
         var window = _windows.Activate(_windows.Resolve(args));
-        _input.PressChord(key);
+        var repeat = Math.Clamp(args.Int("repeat", 1), 1, 100);
+        var intervalMs = Math.Clamp(args.Int("interval_ms", 40), 0, 5_000);
+        for (var index = 0; index < repeat; index++)
+        {
+            _input.PressChord(key);
+            if (index + 1 < repeat && intervalMs > 0) Thread.Sleep(intervalMs);
+        }
         _screenshots.Clear();
         Thread.Sleep(60);
-        return new ActionResult(true, "press_key", "sendinput", new ActionVerification(true, "foreground-window", window.Id.ToString(), _windows.Resolve(window.Id).IsForeground.ToString()));
+        return new ActionResult(true, "press_key", "sendinput", new ActionVerification(true, "foreground-window", window.Id.ToString(), _windows.Resolve(window.Id).IsForeground.ToString()), new { repeat, interval_ms = intervalMs });
+    }
+
+    private ActionResult KeyDown(JsonElement args)
+    {
+        var key = args.String("key") ?? throw new ArgumentException("key is required");
+        var window = _windows.Activate(_windows.Resolve(args));
+        _input.KeyDown(key);
+        _screenshots.Clear();
+        return new ActionResult(true, "key_down", "sendinput-key-state", new ActionVerification(true, "held-key-state", null, string.Join('+', _input.HeldKeys)), new { held_keys = _input.HeldKeys, window_id = window.Id });
+    }
+
+    private ActionResult KeyUp(JsonElement args)
+    {
+        var key = args.String("key") ?? throw new ArgumentException("key is required");
+        var window = _windows.Activate(_windows.Resolve(args));
+        var before = string.Join('+', _input.HeldKeys);
+        _input.KeyUp(key);
+        _screenshots.Clear();
+        return new ActionResult(true, "key_up", "sendinput-key-state", new ActionVerification(true, "held-key-state", before, string.Join('+', _input.HeldKeys)), new { held_keys = _input.HeldKeys, window_id = window.Id });
     }
 
     private ActionResult TypeText(JsonElement args)
@@ -485,11 +516,12 @@ public sealed class BrokerDispatcher : IDisposable
 
     private object EndSession()
     {
+        var releasedKeys = _input.ReleaseAllKeys();
         _uia.ClearSession();
         _windows.ClearSession();
         _screenshots.Clear();
         _observations.Clear();
-        return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow };
+        return new { ok = true, session_id = _sessionId, ended_at = DateTimeOffset.UtcNow, released_keys = releasedKeys };
     }
 
     private CaptureResult RememberCapture(WindowDescriptor? window, CaptureResult capture)

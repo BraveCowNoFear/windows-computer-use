@@ -16,7 +16,7 @@ Choose the highest reliable layer for each step:
 3. Use `wait_for_ui` for control changes and `wait_for_window` for top-level/owned-dialog transitions instead of fixed sleeps. Prefer direct `value_equals`, `value_contains`, `selected`, `unselected`, `toggle_on`, `toggle_off`, `expanded`, `collapsed`, `readonly`, or `editable` predicates when that state is observable.
 4. Use `observe_changes` with the previous `observation_id` when only incremental UIA state is needed; it detects semantic state transitions even when element identity and layout stay unchanged.
 5. Use `snapshot` for one atomic UIA + image observation; use fresh `ocr`/`find_text` for text or `find_image` with a known exact-scale local template when semantic metadata is missing or incomplete.
-6. Use `pointer_position`, `move_pointer`, `click`, `press_key`, `type_text`, `scroll`, or `drag` for physical input fallback. Prefer `coordinate_space=screenshot` with the same observation's screenshot id. Use `move_pointer` when hover is itself meaningful; it does not click or foreground the target.
+6. Use `pointer_position`, `move_pointer`, `click`, `press_key`, `key_down`, `key_up`, `type_text`, `scroll`, or `drag` for physical input fallback. Use `key_down`/`key_up` only when a modifier or movement key must remain held across actions; always release it explicitly, while `end_session` remains the cleanup backstop. Prefer `coordinate_space=screenshot` with the same observation's screenshot id. Use `move_pointer` when hover is itself meaningful; it does not click or foreground the target.
 
 Do not delegate to a dedicated UI worker. Drive this MCP directly in the active task.
 

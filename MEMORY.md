@@ -84,9 +84,17 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Unit coverage builds a synthetic unique-color target and proves exact screenshot/screen coordinate recovery. Three consecutive real E2E runs crop a button from WGC, re-find it in a new WGC frame at score 1.0 in 78 ms without OCR, click through the returned screenshot id, and verify the changed UIA state.
 - Matching is intentionally exact-scale rather than falsely claiming scale/rotation-invariant vision. Novel image understanding still uses model-side vision; current local fallbacks are UIA -> OCR -> known template -> screenshot/model -> physical pixels.
 
+### v0.11.0 — native keyboard state parity
+
+- Added `key_down` and `key_up`, making 28 MCP tools. Explicit keys can remain held across later actions; held state is returned after each transition and every tracked key is released by `key_up`, `end_session`, or broker disposal.
+- `press_key` now supports repeat/interval timing, normalizes modifiers before ordinary keys even when the input order is reversed, and honors the Shift/Ctrl/Alt bits from the active-layout `VkKeyScanW` result for printable characters.
+- Named coverage now includes F13-F24, left/right Win/Shift/Ctrl/Alt, Print Screen, Pause/lock keys, numpad operations, browser navigation, media transport, and volume controls. Extended-key flags are set for navigation/right-modifier/media classes.
+- Unit tests gate implied Shift, modifier ordering, held-modifier reuse, and extended/function-key planning. Three consecutive real E2E runs hold/release Shift and observe both events, prove repeated `A` produces `AA`, then leave Ctrl held and prove `end_session` releases exactly one key; a system-level async-key probe confirms Shift/Ctrl/Alt are all up afterward.
+
 ## Current boundaries and next work
 
-- Windows OCR now provides line/word grounding, but there is no local visual-language model or image matcher yet. Non-text image interpretation still depends on the calling model.
+- Windows OCR provides line/word grounding and exact-scale local template matching covers known images. Novel non-text interpretation, scale/rotation variation, and ambiguous scenes still depend on the calling model.
+- Keyboard holds are stateful and cleanup-safe; persistent mouse-button holds are not yet exposed as first-class tools.
 - Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 

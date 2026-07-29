@@ -68,7 +68,7 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 26) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 28) { throw 'MCP tool catalog is incomplete.' }
 
     $displayInfo = Invoke-WcuTool -Name 'display_info'
     if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
@@ -111,6 +111,20 @@ try {
     if ($textSelectionState.selectedText -ne $testText -or -not $textSelectionState.documentText) {
         throw "Focused TextPattern state was not exposed: $($textSelectionState | ConvertTo-Json -Depth 4 -Compress)"
     }
+
+    $script:stage = 'keyboard-state'
+    $heldShift = Invoke-WcuTool -Name 'key_down' -Arguments @{ window_id = $windowId; key = 'shift' }
+    if (@($heldShift.data.held_keys) -notcontains 'shift') { throw 'key_down did not report the held Shift key.' }
+    $shiftDownWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key down: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $shiftDownWait.matched) { throw 'The test app did not observe the held Shift key.' }
+    $releasedShift = Invoke-WcuTool -Name 'key_up' -Arguments @{ window_id = $windowId; key = 'shift' }
+    if (@($releasedShift.data.held_keys).Count -ne 0) { throw 'key_up left a tracked key held.' }
+    $shiftUpWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; name = 'Key up: ShiftKey'; state = 'exists'; timeout_ms = 1500 }
+    if (-not $shiftUpWait.matched) { throw 'The test app did not observe the Shift key release.' }
+    Invoke-WcuTool -Name 'press_key' -Arguments @{ window_id = $windowId; key = 'A'; repeat = 2; interval_ms = 10 } | Out-Null
+    $uppercaseWait = Invoke-WcuTool -Name 'wait_for_ui' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; state = 'value_equals'; expected_value = 'AA'; timeout_ms = 1500 }
+    if (-not $uppercaseWait.matched) { throw 'Printable uppercase repeat did not apply its implied Shift modifier.' }
+    Invoke-WcuTool -Name 'enter_text' -Arguments @{ window_id = $windowId; control_id = $input.controls[0].id; text = $testText } | Out-Null
 
     $script:stage = 'toggle-state'
     $toggle = Invoke-WcuTool -Name 'find_controls' -Arguments @{ window_id = $windowId; automation_id = 'FeatureToggle'; limit = 2 }
@@ -330,8 +344,10 @@ try {
         throw 'The original window id did not recover the recreated same-process HWND.'
     }
     $windowHandleChanged = [long]$rehydratedInspection.window.id -ne $windowId
+    $heldForCleanup = Invoke-WcuTool -Name 'key_down' -Arguments @{ window_id = $windowId; key = 'ctrl' }
+    if (@($heldForCleanup.data.held_keys) -notcontains 'ctrl') { throw 'Could not stage a held key for end_session cleanup.' }
     $ended = Invoke-WcuTool -Name 'end_session'
-    if (-not $ended.ok) { throw 'Session did not end cleanly.' }
+    if (-not $ended.ok -or $ended.released_keys -ne 1) { throw 'Session did not release its remaining held key cleanly.' }
 
     [ordered]@{
         ok = $true
@@ -379,6 +395,9 @@ try {
         image_match_score = $imageMatches[0].score
         image_match_ms = $imageTarget.elapsed_ms
         image_screenshot_space_mapping = $imageWait.matched
+        held_key_roundtrip = $shiftDownWait.matched -and $shiftUpWait.matched
+        implied_shift_repeat = $uppercaseWait.matched
+        end_session_released_keys = $ended.released_keys
         recreated_window_recovered = $true
         window_handle_changed = $windowHandleChanged
     } | ConvertTo-Json -Depth 6

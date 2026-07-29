@@ -29,7 +29,9 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | `find_image` | Fresh-capture a window and locate an exact-scale local PNG/JPEG template, returning scored screenshot/screen bounds, centers, and screenshot id. |
 | `move_pointer` | Move or smoothly hover in screen/window/screenshot coordinates without clicking or foreground activation. |
 | `click` | Click window-relative or screen coordinates with left, right, or middle button. |
-| `press_key` | Send a `+`-separated chord such as `ctrl+s`, `alt+f4`, or `shift+tab`. |
+| `press_key` | Press/release a `+`-separated chord with implied printable modifiers and optional repeat/interval timing. Covers navigation, F1-F24, left/right modifiers, numpad, browser, media, and volume keys. |
+| `key_down` | Hold one explicit named key across later actions and track it for guaranteed cleanup. |
+| `key_up` | Release one explicitly held key. |
 | `type_text` | Type arbitrary Unicode into the focused control. |
 | `scroll` | Send vertical and horizontal wheel input at a selected point. |
 | `drag` | Drag between physical points with a configurable duration. |
@@ -48,3 +50,5 @@ Visual tools reject minimized windows because WGC/PrintWindow output is not depe
 An exact `window_id` is resolved directly as an HWND even when that window is temporarily hidden or untitled. If an app destroys and recreates the HWND, the cached id follows it only when the same process id, native class, and non-empty title identify one unique replacement. Otherwise the broker returns an explicit stale-id error; call `list_windows`/`wait_for_window` and select the replacement rather than guessing.
 
 For `wait_for_ui`, use `expected_value` with `value_equals` or `value_contains`; comparison is case-insensitive unless `case_sensitive=true`. Exact `control_id` selectors reuse validated element locators, while other selectors use targeted traversal and every poll re-resolves the target HWND. A UIA provider call itself cannot be preempted, but an observation completed after `timeout_ms` is not reported as a successful match.
+
+`press_key` interprets printable characters using the active Windows keyboard layout, including implied modifier bits (for example `A` supplies Shift); use `plus` because `+` separates chord tokens. `key_down`/`key_up` require explicit names, so hold `shift` separately before a modified printable key. Any tracked key still held at `end_session` or broker disposal is released automatically.

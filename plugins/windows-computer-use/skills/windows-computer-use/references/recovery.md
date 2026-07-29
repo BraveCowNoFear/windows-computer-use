@@ -18,6 +18,8 @@ If the target is minimized, call `set_window_state` with `restore` first. Otherw
 
 Stop coordinate retries. Inspect focus, use a stable semantic control id with `enter_text`, then wait for the expected UI state. All state-changing tools activate their selected window before input.
 
+If a held key outlives the intended gesture, call `key_up` with the same explicit key name. `end_session` releases every tracked key, and broker shutdown provides the same final cleanup backstop.
+
 ## UI lock busy
 
 Wait for the other controller to finish. The broker intentionally uses the same lock file as the legacy pixel skill so two agents cannot interleave physical input. Expired locks are removed automatically.

@@ -11,7 +11,7 @@ The plugin runs in **full-control mode**. It does not maintain its own app allow
 - UI Automation 3 inspection through FlaUI, including names, AutomationIds, types, bounds, focus, Value/read-only/selection/toggle/expand/scroll states, document text, and selected text.
 - Hierarchical UIA descriptors with parent/depth/child metadata, path-stable control ids, automatic stale-element re-location, and incremental observation diffs.
 - Semantic `invoke`, explicit `perform_secondary_action` focus/selection/toggle/expand/collapse/scroll actions, and Unicode `enter_text`, with native SendInput fallback.
-- Physical pointer-position observation, smooth move/hover, mouse click, drag, wheel, keyboard chords, app launching, window activation, and virtual-desktop coordinates.
+- Physical pointer-position observation, smooth move/hover, mouse click, drag, wheel, repeated keyboard chords with implied modifiers, tracked key-down/key-up holds, app launching, window activation, and virtual-desktop coordinates.
 - Physical multi-monitor topology with per-display bounds, work area, effective DPI, primary flag, and scale percentage.
 - Picker-free window PNG capture through native Windows Graphics Capture, with `PrintWindow` and screen-copy fallback.
 - DWM-visible-frame alignment and explicit `window` / `screen` / `screenshot` coordinate spaces, so WGC pixels map back to physical input without invisible-border offset.
@@ -20,7 +20,7 @@ The plugin runs in **full-control mode**. It does not maintain its own app allow
 - Owned-window/root-owner metadata, `wait_for_window` for transient dialogs, and verified minimize/maximize/restore state control.
 - State-conditional waits instead of blind sleeps: existence/visibility/focus plus Value equality/containment, selected/unselected, toggle, expand/collapse, and read-only/editable predicates; every action is automatically re-observed.
 - Atomic UIA + image `snapshot` observations, timestamped screenshot ids and SHA-256 hashes, plus stale-coordinate rejection after a window moves, resizes, or ages out.
-- A local stdio MCP with 26 tools and a current-user named-pipe broker.
+- A local stdio MCP with 28 tools and a current-user named-pipe broker.
 - Compatibility with the global UI lock from `desktop-control-for-windows`.
 - A real WinForms end-to-end test covering MCP handshake, UIA discovery, rich state diffs, selected text, secondary actions, Chinese input, semantic invoke, condition wait, capture, OCR, and cleanup.
 
@@ -54,7 +54,7 @@ cd "C:\path\to\windows-computer-use\plugins\windows-computer-use"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
-`test.ps1` first validates the Codex manifest, marketplace path, MCP launcher, skill/assets, and all PowerShell syntax. It then restores dependencies, builds and publishes the broker/MCP, runs the xUnit suite, opens the isolated WinForms test window, drives it through the real MCP, hard-gates hierarchical UIA/state diffs, Value and selected-text exposure, semantic secondary actions, state-conditional waits with deadlines, Windows Graphics Capture, OCR and image-template grounding, snapshot invalidation/freshness, and stale-coordinate rejection, closes the test app, and exits non-zero on any failed gate.
+`test.ps1` first validates the Codex manifest, marketplace path, MCP launcher, skill/assets, and all PowerShell syntax. It then restores dependencies, builds and publishes the broker/MCP, runs the xUnit suite, opens the isolated WinForms test window, drives it through the real MCP, hard-gates hierarchical UIA/state diffs, Value and selected-text exposure, semantic secondary actions, state-conditional waits, held/implied-modifier keyboard input, Windows Graphics Capture, OCR and image-template grounding, snapshot freshness, and stale-coordinate rejection, closes the test app, and exits non-zero on any failed gate.
 
 For a non-destructive real-app compatibility pass, run `scripts/real-app-smoke.ps1` after building. It opens isolated Notepad, File Explorer, and Settings windows, inspects/captures/OCRs them, and closes only windows whose ids were absent before the test.
 
@@ -76,7 +76,7 @@ Install **Windows Computer Use** from the local **Brave Cow Windows Tools** mark
 
 ## MCP surface
 
-The 26 tools are `list_windows`, `display_info`, `pointer_position`, `launch_app`, `wait_for_window`, `inspect_window`, `observe_changes`, `find_controls`, `invoke`, `perform_secondary_action`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `find_text`, `find_image`, `move_pointer`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `set_window_state`, `activate_window`, and `end_session`.
+The 28 tools are `list_windows`, `display_info`, `pointer_position`, `launch_app`, `wait_for_window`, `inspect_window`, `observe_changes`, `find_controls`, `invoke`, `perform_secondary_action`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `find_text`, `find_image`, `move_pointer`, `click`, `press_key`, `key_down`, `key_up`, `type_text`, `scroll`, `drag`, `set_window_state`, `activate_window`, and `end_session`.
 
 Use the exact window id returned by `list_windows`; the broker rehydrates that HWND directly while it is temporarily hidden or untitled. If an app recreates the HWND, the old id follows the unique replacement only when process id, native class, and non-empty title still match; otherwise it fails closed and requires a fresh selection. Use `wait_for_window` plus `owner_window_id` for transient dialogs. Prefer stable control ids from `inspect_window`/`find_controls`, inspect their current state fields, and pass an earlier `observation_id` to `observe_changes` after transitions. Use `perform_secondary_action` when the intended UIA action is more specific than a primary invoke. Otherwise use `find_text` for text, `find_image` for a known exact-scale local template, or `snapshot` for model vision, then pass the returned `screenshot_id` with `coordinate_space: "screenshot"`. Semantic/input actions invalidate older screenshots; the broker also rejects ids if the target moved, resized, or exceeded `max_age_ms`. Restore minimized windows before visual observation. Legacy coordinates remain physical window-relative pixels by default.
 

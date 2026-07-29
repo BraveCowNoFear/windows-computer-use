@@ -17,6 +17,7 @@ internal static class NativeMethods
     internal const uint InputMouse = 0;
     internal const uint InputKeyboard = 1;
     internal const uint KeyeventfKeyup = 0x0002;
+    internal const uint KeyeventfExtendedkey = 0x0001;
     internal const uint KeyeventfUnicode = 0x0004;
     internal const uint MouseeventfLeftdown = 0x0002;
     internal const uint MouseeventfLeftup = 0x0004;

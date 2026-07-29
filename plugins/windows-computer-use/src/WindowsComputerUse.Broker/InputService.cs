@@ -29,9 +29,48 @@ public sealed class InputService
         ["down"] = 0x28,
         ["insert"] = 0x2D,
         ["delete"] = 0x2E,
+        ["printscreen"] = 0x2C,
+        ["snapshot"] = 0x2C,
         ["win"] = 0x5B,
+        ["lwin"] = 0x5B,
+        ["rwin"] = 0x5C,
         ["meta"] = 0x5B,
         ["apps"] = 0x5D,
+        ["contextmenu"] = 0x5D,
+        ["pause"] = 0x13,
+        ["capslock"] = 0x14,
+        ["numlock"] = 0x90,
+        ["scrolllock"] = 0x91,
+        ["lshift"] = 0xA0,
+        ["rshift"] = 0xA1,
+        ["lctrl"] = 0xA2,
+        ["rctrl"] = 0xA3,
+        ["lalt"] = 0xA4,
+        ["ralt"] = 0xA5,
+        ["browserback"] = 0xA6,
+        ["browserforward"] = 0xA7,
+        ["volumemute"] = 0xAD,
+        ["volumedown"] = 0xAE,
+        ["volumeup"] = 0xAF,
+        ["medianext"] = 0xB0,
+        ["mediaprevious"] = 0xB1,
+        ["mediastop"] = 0xB2,
+        ["mediaplaypause"] = 0xB3,
+        ["numpad0"] = 0x60,
+        ["numpad1"] = 0x61,
+        ["numpad2"] = 0x62,
+        ["numpad3"] = 0x63,
+        ["numpad4"] = 0x64,
+        ["numpad5"] = 0x65,
+        ["numpad6"] = 0x66,
+        ["numpad7"] = 0x67,
+        ["numpad8"] = 0x68,
+        ["numpad9"] = 0x69,
+        ["multiply"] = 0x6A,
+        ["add"] = 0x6B,
+        ["subtract"] = 0x6D,
+        ["decimal"] = 0x6E,
+        ["divide"] = 0x6F,
         ["f1"] = 0x70,
         ["f2"] = 0x71,
         ["f3"] = 0x72,
@@ -43,8 +82,36 @@ public sealed class InputService
         ["f9"] = 0x78,
         ["f10"] = 0x79,
         ["f11"] = 0x7A,
-        ["f12"] = 0x7B
+        ["f12"] = 0x7B,
+        ["f13"] = 0x7C,
+        ["f14"] = 0x7D,
+        ["f15"] = 0x7E,
+        ["f16"] = 0x7F,
+        ["f17"] = 0x80,
+        ["f18"] = 0x81,
+        ["f19"] = 0x82,
+        ["f20"] = 0x83,
+        ["f21"] = 0x84,
+        ["f22"] = 0x85,
+        ["f23"] = 0x86,
+        ["f24"] = 0x87
     };
+
+    private static readonly Dictionary<string, char> PrintableAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["plus"] = '+', ["minus"] = '-', ["comma"] = ',', ["period"] = '.', ["slash"] = '/',
+        ["backslash"] = '\\', ["semicolon"] = ';', ["quote"] = '\'', ["backtick"] = '`',
+        ["leftbracket"] = '[', ["rightbracket"] = ']'
+    };
+
+    private static readonly HashSet<ushort> ExtendedKeys =
+    [
+        0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x2C,
+        0x5B, 0x5C, 0x5D, 0x6F, 0x90, 0xA3, 0xA5, 0xA6, 0xA7,
+        0xAD, 0xAE, 0xAF, 0xB0, 0xB1, 0xB2, 0xB3
+    ];
+
+    private readonly Dictionary<ushort, HeldKey> _heldKeys = [];
 
     public void Click(int x, int y, string button = "left", int count = 1)
     {
@@ -126,25 +193,146 @@ public sealed class InputService
 
     public void PressChord(string chord)
     {
-        var keys = chord.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(ToVirtualKey).ToArray();
-        if (keys.Length == 0) throw new ArgumentException("key chord is empty");
-        foreach (var key in keys) SendKeyboard(key, '\0', 0);
-        for (var index = keys.Length - 1; index >= 0; index--) SendKeyboard(keys[index], '\0', KeyeventfKeyup);
+        var held = _heldKeys.Values.Select(item => item.Stroke).ToArray();
+        var sequence = PlanChordStrokes(chord)
+            .Where(stroke => !IsAlreadyHeld(stroke, held))
+            .ToArray();
+        if (sequence.Length == 0) return;
+        var inputs = sequence.Select(stroke => KeyboardInputFor(stroke, keyUp: false))
+            .Concat(sequence.AsEnumerable().Reverse().Select(stroke => KeyboardInputFor(stroke, keyUp: true)))
+            .ToArray();
+        try { EnsureSent(inputs); }
+        catch
+        {
+            foreach (var stroke in sequence.AsEnumerable().Reverse())
+            {
+                try { EnsureSent([KeyboardInputFor(stroke, keyUp: true)]); } catch { }
+            }
+            throw;
+        }
     }
+
+    internal static IReadOnlyList<PlannedKey> PlanChord(string chord, params string[] heldKeys)
+    {
+        var held = heldKeys.Select(ToKeyStroke).ToArray();
+        return PlanChordStrokes(chord)
+            .Where(stroke => !IsAlreadyHeld(stroke, held))
+            .Select(stroke => new PlannedKey(stroke.VirtualKey, stroke.Extended))
+            .ToArray();
+    }
+
+    private static List<KeyStroke> PlanChordStrokes(string chord)
+    {
+        var strokes = chord.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(ToKeyStroke).ToArray();
+        if (strokes.Length == 0) throw new ArgumentException("key chord is empty");
+
+        var explicitModifiers = strokes.Where(stroke => ModifierGroup(stroke.VirtualKey) != 0)
+            .Select(stroke => ModifierGroup(stroke.VirtualKey)).ToHashSet();
+        var sequence = new List<KeyStroke>();
+        foreach (var modifier in strokes.SelectMany(ImpliedModifiers).DistinctBy(stroke => ModifierGroup(stroke.VirtualKey)))
+        {
+            if (!explicitModifiers.Contains(ModifierGroup(modifier.VirtualKey))) sequence.Add(modifier);
+        }
+        sequence.AddRange(strokes.Where(stroke => ModifierGroup(stroke.VirtualKey) != 0));
+        sequence.AddRange(strokes.Where(stroke => ModifierGroup(stroke.VirtualKey) == 0));
+        return sequence.DistinctBy(stroke => stroke.VirtualKey).ToList();
+    }
+
+    public void KeyDown(string key)
+    {
+        var stroke = ToKeyStroke(key);
+        if (stroke.ModifierMask != 0)
+            throw new ArgumentException("key_down requires an explicit key name; hold shift/ctrl/alt separately for modified printable keys.");
+        if (_heldKeys.ContainsKey(stroke.VirtualKey)) return;
+        EnsureSent([KeyboardInputFor(stroke, keyUp: false)]);
+        _heldKeys[stroke.VirtualKey] = new HeldKey(key, stroke);
+    }
+
+    public void KeyUp(string key)
+    {
+        var stroke = ToKeyStroke(key);
+        if (stroke.ModifierMask != 0)
+            throw new ArgumentException("key_up requires the same explicit key name used by key_down.");
+        if (_heldKeys.TryGetValue(stroke.VirtualKey, out var held)) stroke = held.Stroke;
+        EnsureSent([KeyboardInputFor(stroke, keyUp: true)]);
+        _heldKeys.Remove(stroke.VirtualKey);
+    }
+
+    public int ReleaseAllKeys()
+    {
+        var held = _heldKeys.Values.Reverse().ToArray();
+        if (held.Length == 0) return 0;
+        Exception? failure = null;
+        var released = 0;
+        foreach (var item in held)
+        {
+            try
+            {
+                EnsureSent([KeyboardInputFor(item.Stroke, keyUp: true)]);
+                _heldKeys.Remove(item.Stroke.VirtualKey);
+                released++;
+            }
+            catch (Exception exception)
+            {
+                failure ??= exception;
+            }
+        }
+        if (failure is not null) throw new InvalidOperationException($"Failed to release {_heldKeys.Count} held key(s).", failure);
+        return released;
+    }
+
+    public IReadOnlyList<string> HeldKeys => _heldKeys.Values.Select(item => item.Name).ToArray();
 
     public (int X, int Y) WindowPoint(WindowDescriptor window, int x, int y, bool relative) =>
         relative ? (window.Bounds.X + x, window.Bounds.Y + y) : (x, y);
 
-    private static ushort ToVirtualKey(string key)
+    private static KeyStroke ToKeyStroke(string key)
     {
-        if (NamedKeys.TryGetValue(key, out var result)) return result;
+        if (NamedKeys.TryGetValue(key, out var named)) return new KeyStroke(named, 0, ExtendedKeys.Contains(named));
+        if (PrintableAliases.TryGetValue(key, out var alias)) key = alias.ToString();
         if (key.Length == 1)
         {
             var scan = NativeMethods.VkKeyScanW(key[0]);
-            if (scan != -1) return unchecked((ushort)(scan & 0xFF));
+            if (scan != -1)
+            {
+                var virtualKey = unchecked((ushort)(scan & 0xFF));
+                return new KeyStroke(virtualKey, (scan >> 8) & 0x07, ExtendedKeys.Contains(virtualKey));
+            }
         }
         throw new ArgumentException($"Unsupported key name: {key}");
+    }
+
+    private static IEnumerable<KeyStroke> ImpliedModifiers(KeyStroke stroke)
+    {
+        if ((stroke.ModifierMask & 1) != 0) yield return new KeyStroke(0x10, 0, false);
+        if ((stroke.ModifierMask & 2) != 0) yield return new KeyStroke(0x11, 0, false);
+        if ((stroke.ModifierMask & 4) != 0) yield return new KeyStroke(0x12, 0, false);
+    }
+
+    private static int ModifierGroup(ushort virtualKey) => virtualKey switch
+    {
+        0x10 or 0xA0 or 0xA1 => 1,
+        0x11 or 0xA2 or 0xA3 => 2,
+        0x12 or 0xA4 or 0xA5 => 4,
+        _ => 0
+    };
+
+    private static bool IsAlreadyHeld(KeyStroke stroke, IReadOnlyCollection<KeyStroke> held)
+    {
+        var modifierGroup = ModifierGroup(stroke.VirtualKey);
+        return held.Any(item => item.VirtualKey == stroke.VirtualKey ||
+            (modifierGroup != 0 && ModifierGroup(item.VirtualKey) == modifierGroup));
+    }
+
+    private static Input KeyboardInputFor(KeyStroke stroke, bool keyUp)
+    {
+        var flags = (stroke.Extended ? KeyeventfExtendedkey : 0) | (keyUp ? KeyeventfKeyup : 0);
+        return new Input
+        {
+            Type = InputKeyboard,
+            Union = new InputUnion { Keyboard = new KeyboardInput { VirtualKey = stroke.VirtualKey, Flags = flags } }
+        };
     }
 
     private static void SendMouse(uint flags, uint data = 0)
@@ -181,4 +369,8 @@ public sealed class InputService
         if (!NativeMethods.SetCursorPos(x, y))
             throw new InvalidOperationException($"SetCursorPos failed with Win32 error {Marshal.GetLastWin32Error()}.");
     }
+
+    private sealed record KeyStroke(ushort VirtualKey, int ModifierMask, bool Extended);
+    private sealed record HeldKey(string Name, KeyStroke Stroke);
+    internal sealed record PlannedKey(ushort VirtualKey, bool Extended);
 }

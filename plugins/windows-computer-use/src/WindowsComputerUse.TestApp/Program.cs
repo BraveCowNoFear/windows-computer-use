@@ -40,9 +40,10 @@ internal sealed class TestForm : Form
         Name = "TestWindow";
         AccessibleName = "Windows Computer Use Test App";
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(520, 375);
+        ClientSize = new Size(520, 420);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
+        KeyPreview = true;
 
         var heading = new Label
         {
@@ -118,6 +119,14 @@ internal sealed class TestForm : Form
             Location = new Point(200, 286),
             Size = new Size(145, 36)
         };
+        var keyStatus = new Label
+        {
+            Name = "KeyStatusLabel",
+            AccessibleName = "Key idle",
+            Text = "Key idle",
+            AutoSize = true,
+            Location = new Point(30, 345)
+        };
         commit.Click += (_, _) =>
         {
             status.Text = $"Saved: {input.Text}";
@@ -167,7 +176,17 @@ internal sealed class TestForm : Form
             };
             timer.Start();
         };
-        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle]);
+        KeyDown += (_, eventArgs) =>
+        {
+            keyStatus.Text = $"Key down: {eventArgs.KeyCode}";
+            keyStatus.AccessibleName = keyStatus.Text;
+        };
+        KeyUp += (_, eventArgs) =>
+        {
+            keyStatus.Text = $"Key up: {eventArgs.KeyCode}";
+            keyStatus.AccessibleName = keyStatus.Text;
+        };
+        Controls.AddRange([heading, input, commit, status, openDialog, featureToggle, modeList, recreateWindow, delayedToggle, keyStatus]);
         AcceptButton = commit;
     }
 }

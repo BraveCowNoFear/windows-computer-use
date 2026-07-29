@@ -39,6 +39,7 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 
 - UIA3: FlaUI 5.0 over Microsoft UI Automation.
 - Windows and capture: picker-free `Windows.Graphics.Capture` for HWNDs on Windows 10 1903+, then `PrintWindow(PW_RENDERFULLCONTENT)` and physical screen copy fallback.
+- Displays and DPI: `EnumDisplayMonitors` + `GetMonitorInfo` physical virtual-screen rectangles and effective per-monitor DPI from Shcore.
 - Input: User32 `SendInput`; Unicode uses `KEYEVENTF_UNICODE` and does not mutate the clipboard.
 - OCR: Windows Runtime `Windows.Media.Ocr`, executed by a bundled PowerShell WinRT adapter and using installed language packs.
 - Concurrency: atomic compatibility lock shared with `desktop-control-for-windows`.
@@ -47,4 +48,4 @@ The broker never logs raw text or screenshots. Its local JSONL audit stores time
 
 - There is no local visual-language model or template/image matcher yet; OCR plus model-side image reasoning is the visual fallback.
 - Secure desktop and higher-integrity windows require matching Windows privileges.
-- The benchmark currently hard-gates the deterministic WinForms fixture. Real-app suites for Explorer, Settings, WeChat, Office, SolidWorks, Electron, multi-monitor, and mixed DPI are the next expansion.
+- Deterministic, Explorer, Settings, Word, Excel, VS Code/Electron, WeChat, and SolidWorks gates are implemented. The current development machine has one 150%-scaled display, so true multi-monitor/mixed-DPI, remote-desktop, minimized/protected-window, and elevated-process runs remain external matrix items.

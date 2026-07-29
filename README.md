@@ -12,15 +12,16 @@ The plugin runs in **full-control mode**. It does not maintain its own app allow
 - Hierarchical UIA descriptors with parent/depth/child metadata, path-stable control ids, automatic stale-element re-location, and incremental observation diffs.
 - Semantic `invoke` and Unicode `enter_text`, with native SendInput fallback.
 - Physical mouse click, drag, wheel, keyboard chords, app launching, window activation, and virtual-desktop coordinates.
+- Physical multi-monitor topology with per-display bounds, work area, effective DPI, primary flag, and scale percentage.
 - Picker-free window PNG capture through native Windows Graphics Capture, with `PrintWindow` and screen-copy fallback.
 - Native `Windows.Media.Ocr` using installed Windows language packs.
 - Condition waits instead of blind sleeps and automatic re-observation after every action.
 - Atomic UIA + image `snapshot` observations, timestamped screenshot ids and SHA-256 hashes, plus stale-coordinate rejection after a window moves, resizes, or ages out.
-- A local stdio MCP with 18 tools and a current-user named-pipe broker.
+- A local stdio MCP with 19 tools and a current-user named-pipe broker.
 - Compatibility with the global UI lock from `desktop-control-for-windows`.
 - A real WinForms end-to-end test covering MCP handshake, UIA discovery, Chinese input, semantic invoke, condition wait, capture, OCR, and cleanup.
 
-Local visual-language grounding and a broad Office/WeChat/SolidWorks benchmark corpus are not yet implemented. OCR and model-side image reasoning remain the visual interpretation layer.
+Local visual-language grounding is not yet implemented. OCR and model-side image reasoning remain the visual interpretation layer. The extended compatibility gate now covers Word, Excel, VS Code/Electron, WeChat, and SolidWorks; true multi-monitor/mixed-DPI and elevated-boundary runs still require suitable hardware/process state.
 
 ## Architecture
 
@@ -54,6 +55,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 
 For a non-destructive real-app compatibility pass, run `scripts/real-app-smoke.ps1` after building. It opens isolated Notepad, File Explorer, and Settings windows, inspects/captures/OCRs them, and closes only windows whose ids were absent before the test.
 
+Run `scripts/extended-app-smoke.ps1` for isolated Word, Excel, and VS Code/Electron coverage. Add `-IncludeWeChat -IncludeSolidWorks` to cover those installed apps; the script skips any app family that was already running, reads UIA/WGC/OCR only, and closes only process groups created by the test. `-OptionalOnly` runs just the optional apps.
+
 ## Local Codex plugin test
 
 Build once, then add this repository root as a local marketplace:
@@ -70,7 +73,7 @@ Install **Windows Computer Use** from the local **Brave Cow Windows Tools** mark
 
 ## MCP surface
 
-The 18 tools are `list_windows`, `launch_app`, `inspect_window`, `observe_changes`, `find_controls`, `invoke`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `activate_window`, and `end_session`.
+The 19 tools are `list_windows`, `display_info`, `launch_app`, `inspect_window`, `observe_changes`, `find_controls`, `invoke`, `enter_text`, `wait_for_ui`, `capture`, `snapshot`, `ocr`, `click`, `press_key`, `type_text`, `scroll`, `drag`, `activate_window`, and `end_session`.
 
 Use the exact window id returned by `list_windows`. Prefer stable control ids from `inspect_window`/`find_controls`, and pass an earlier `observation_id` to `observe_changes` after transitions. Otherwise use `snapshot`, then pass its `screenshot_id` to coordinate actions. Semantic/input actions invalidate older screenshots; the broker also rejects ids if the target moved, resized, or exceeded `max_age_ms`. Coordinates are physical pixels and window-relative by default.
 

@@ -43,7 +43,7 @@ try {
     $process.StandardInput.Flush()
     $toolsResponse = $process.StandardOutput.ReadLine() | ConvertFrom-Json
     $toolCount = @($toolsResponse.result.tools).Count
-    if ($toolCount -ne 18) { throw "Expected 18 tools, got $toolCount." }
+    if ($toolCount -ne 19) { throw "Expected 19 tools, got $toolCount." }
     $process.StandardInput.Close()
     if (-not $process.WaitForExit(5000)) { throw 'MCP launcher did not exit after stdin closed.' }
     [ordered]@{ ok = $true; cold = [bool]$Cold; first_stdout_was_jsonrpc = $true; tools = $toolCount; exit_code = $process.ExitCode } | ConvertTo-Json -Compress

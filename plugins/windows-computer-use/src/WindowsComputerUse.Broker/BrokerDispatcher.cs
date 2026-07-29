@@ -9,6 +9,7 @@ public sealed class BrokerDispatcher : IDisposable
     private readonly WindowService _windows = new();
     private readonly InputService _input = new();
     private readonly CaptureService _capture = new();
+    private readonly DisplayService _displays = new();
     private readonly OcrService _ocr = new();
     private readonly UiaService _uia;
     private readonly AuditLogger _audit = new();
@@ -40,6 +41,7 @@ public sealed class BrokerDispatcher : IDisposable
                     coordinate_space = "physical-screen-pixels",
                     access_mode = "full-control"
                 },
+                "display_info" => _displays.GetTopology(),
                 "launch_app" => Launch(args),
                 "inspect_window" => Inspect(args),
                 "observe_changes" => ObserveChanges(args),

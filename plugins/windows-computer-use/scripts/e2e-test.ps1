@@ -66,7 +66,12 @@ try {
     $initialize = Invoke-McpRequest -Method 'initialize' -Params @{ protocolVersion = '2025-06-18'; capabilities = @{}; clientInfo = @{ name = 'e2e-test'; version = '1.0' } }
     if ($initialize.serverInfo.name -ne 'windows-computer-use') { throw 'Unexpected MCP server identity.' }
     $tools = Invoke-McpRequest -Method 'tools/list'
-    if (@($tools.tools).Count -lt 18) { throw 'MCP tool catalog is incomplete.' }
+    if (@($tools.tools).Count -lt 19) { throw 'MCP tool catalog is incomplete.' }
+
+    $displayInfo = Invoke-WcuTool -Name 'display_info'
+    if (@($displayInfo.displays).Count -lt 1 -or $displayInfo.virtualDesktop.width -lt 1 -or $displayInfo.displays[0].dpiX -lt 96) {
+        throw 'Physical display topology or DPI metadata is incomplete.'
+    }
 
     $windows = Invoke-WcuTool -Name 'list_windows'
     $target = @($windows.windows | Where-Object { $_.title -eq 'Windows Computer Use Test App' })
@@ -167,6 +172,9 @@ try {
         ok = $true
         protocol = $initialize.protocolVersion
         tools = @($tools.tools).Count
+        displays = @($displayInfo.displays).Count
+        primary_scale_percent = $displayInfo.displays[0].scalePercent
+        virtual_desktop = "$($displayInfo.virtualDesktop.x),$($displayInfo.virtualDesktop.y),$($displayInfo.virtualDesktop.width),$($displayInfo.virtualDesktop.height)"
         window_id = $windowId
         controls = @($inspection.controls).Count
         text_backend = $entered.backend

@@ -35,10 +35,17 @@ This file is the compact, repo-local memory for Windows Computer Use. `AGENTS.md
 - Hierarchical real-app regression passed Explorer (124 controls) and Settings (157-170 controls depending on load timing) with WGC and OCR.
 - The real-app gate now requires WGC and treats empty/failed OCR as failure after one fresh-capture retry; an earlier benchmark incorrectly reported overall success when Settings OCR transiently returned `ok=false`.
 
+### v0.4.0 — display topology and extended compatibility
+
+- Added `display_info`, making 19 MCP tools. It returns physical virtual-desktop bounds and each display's bounds, work area, primary flag, effective DPI, and scale percentage.
+- The development machine currently exposes one 2560x1600 physical display at 150% scaling. The deterministic E2E hard-gates at least one display and valid DPI metadata; no multi-monitor claim is made from this machine.
+- Added an isolated extended-app gate. Verified Word (138 controls, depth 11), Excel (60, depth 8), VS Code/Electron (14, depth 7), WeChat (29, depth 8), and SolidWorks (115, depth 12), all with WGC + OCR.
+- Extended-app cleanup preserves pre-existing app families, closes only test-created process groups, and proved zero remaining target processes, screenshots, VS Code profiles, MCP/Broker processes, or UI locks.
+
 ## Current boundaries and next work
 
 - No local visual-language model, image matcher, or OCR bounding-box grounding yet. Image interpretation currently depends on Windows OCR and the calling model.
-- Broader release benchmarks remain for Office, WeChat, SolidWorks, Electron, remote desktop, multi-monitor, mixed-DPI, minimized/protected windows, and elevated-process boundaries.
+- Remaining external matrix items are remote desktop, true multi-monitor/mixed-DPI hardware, minimized/protected windows, elevated-process boundaries, and longer state-changing workflows inside complex apps.
 - Browser DOM and app-specific APIs are routing guidance for the calling agent, not implemented inside this Windows broker.
 
 ## Tooling notes

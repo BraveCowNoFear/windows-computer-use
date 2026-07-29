@@ -11,6 +11,7 @@ Semantic queries accept `control_id`, `name`, `name_contains`, `automation_id`, 
 | Tool | Purpose |
 | --- | --- |
 | `list_windows` | Return visible top-level windows, process identity, bounds, foreground, and minimized state. |
+| `display_info` | Return physical virtual-desktop and per-monitor bounds, work areas, effective DPI, primary flag, and scale. |
 | `launch_app` | Launch an executable, registered app, file, or URI. |
 | `inspect_window` | Return the UIA3 tree, controls, stable ids, patterns, state, and physical bounds. |
 | `observe_changes` | Compare against a cached observation id and return only added, removed, or changed controls. |

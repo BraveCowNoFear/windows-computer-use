@@ -7,6 +7,7 @@ public static class ToolCatalog
     public static IReadOnlyList<ToolDefinition> All { get; } =
     [
         Tool("list_windows", "List visible top-level Windows windows. Always use a returned window_id instead of guessing a target.", Props()),
+        Tool("display_info", "Return physical virtual-desktop bounds plus every monitor's bounds, work area, primary flag, effective DPI, and scale percentage.", Props()),
         Tool("launch_app", "Launch any app, executable, file, URI, or registered shell target in full-control mode.",
             Props(("app", S("string", "Executable path, app id, file, or URI.")), ("arguments", S("string", "Optional command-line arguments.")), ("wait_ms", S("integer", "Wait for initial UI readiness."))), ["app"]),
         Tool("inspect_window", "Inspect one window through UI Automation 3 and return a semantic control tree with stable control ids.",
@@ -45,7 +46,7 @@ public static class ToolCatalog
     {
         var schema = new Dictionary<string, object> { ["type"] = "object", ["properties"] = properties, ["additionalProperties"] = false };
         if (required is { Length: > 0 }) schema["required"] = required;
-        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
+        return new ToolDefinition(name, description, schema, new { readOnlyHint = name is "list_windows" or "display_info" or "inspect_window" or "observe_changes" or "find_controls" or "capture" or "snapshot" or "ocr", destructiveHint = false, openWorldHint = name == "launch_app" });
     }
 
     private static Dictionary<string, object> WindowProps(params (string Name, object Schema)[] extra)

@@ -42,6 +42,21 @@ public sealed record WindowDescriptor(
     bool IsForeground,
     bool IsMinimized);
 
+public sealed record DisplayDescriptor(
+    string Id,
+    long Handle,
+    bool IsPrimary,
+    RectDto Bounds,
+    RectDto WorkingArea,
+    uint DpiX,
+    uint DpiY,
+    int ScalePercent);
+
+public sealed record DisplayTopology(
+    RectDto VirtualDesktop,
+    IReadOnlyList<DisplayDescriptor> Displays,
+    string CoordinateSpace = "physical-screen-pixels");
+
 public sealed record ControlDescriptor(
     string Id,
     int Index,

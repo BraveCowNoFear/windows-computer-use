@@ -23,12 +23,13 @@ Do not delegate to a dedicated UI worker. Drive this MCP directly in the active 
 ## Workflow
 
 1. Call `list_windows`. Select exactly one returned window and keep its numeric `window_id`; never invent a window object or guess a handle.
-2. Call `inspect_window` or `find_controls`. Prefer a returned stable `control_id` over coordinates.
-3. Perform one state-changing action. Actions automatically activate the target, re-resolve stale elements, and re-observe afterward.
-4. Inspect the returned verification. Call `wait_for_ui` for dialogs, navigation, saves, progress, or any asynchronous transition.
-5. Reinspect after a major state change. Treat prior coordinates as stale; control ids can be retried because the broker re-locates their selector.
-6. When UIA cannot expose the target, call `snapshot` (and optionally `ocr`) before coordinate input, then pass its `screenshot_id` to `click`, `scroll`, or `drag`. If the broker reports it stale, moved, or resized, snapshot again instead of retrying blindly.
-7. Call `end_session` after the Windows phase to clear cached elements and close the control lifecycle.
+2. Call `display_info` before physical-pixel work when monitor origin, DPI scaling, or cross-display placement matters.
+3. Call `inspect_window` or `find_controls`. Prefer a returned stable `control_id` over coordinates.
+4. Perform one state-changing action. Actions automatically activate the target, re-resolve stale elements, and re-observe afterward.
+5. Inspect the returned verification. Call `wait_for_ui` for dialogs, navigation, saves, progress, or any asynchronous transition.
+6. Reinspect after a major state change. Treat prior coordinates as stale; control ids can be retried because the broker re-locates their selector.
+7. When UIA cannot expose the target, call `snapshot` (and optionally `ocr`) before coordinate input, then pass its `screenshot_id` to `click`, `scroll`, or `drag`. If the broker reports it stale, moved, or resized, snapshot again instead of retrying blindly.
+8. Call `end_session` after the Windows phase to clear cached elements and close the control lifecycle.
 
 All coordinates are physical screen pixels. Coordinate tools are window-relative by default and support negative virtual-desktop origins. Unicode text entry does not require clipboard mutation.
 
